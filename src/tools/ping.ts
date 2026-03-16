@@ -34,26 +34,33 @@ function detectAuthStatus(): PingResult["authStatus"] {
   try {
     const credsPath = join(homedir(), ".gemini", "oauth_creds.json");
     const raw = readFileSync(credsPath, "utf8");
-    const creds = JSON.parse(raw) as { expiry_date?: number; refresh_token?: string };
+    const creds = JSON.parse(raw) as Record<string, unknown>;
 
-    if (creds.refresh_token) {
+    const hasRefreshToken =
+      typeof creds.refresh_token === "string" && creds.refresh_token.length > 0;
+    const hasExpiryDate =
+      typeof creds.expiry_date === "number" && creds.expiry_date > 0;
+
+    if (hasRefreshToken) {
       // Has refresh token, CLI can renew automatically
-      if (creds.expiry_date && creds.expiry_date < Date.now()) {
-        return "ok"; // expired access token but refresh token will renew it
-      }
       return "ok";
     }
 
-    // No refresh token, check if access token is still valid
-    if (creds.expiry_date && creds.expiry_date < Date.now()) {
-      return "expired";
+    if (hasExpiryDate) {
+      // No refresh token; access token validity depends on expiry
+      return (creds.expiry_date as number) < Date.now() ? "expired" : "ok";
     }
-    return "ok";
-  } catch {
-    // No OAuth creds file
-  }
 
-  return "missing";
+    // Neither valid refresh_token nor valid expiry_date - can't determine status
+    return "unknown";
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") {
+      return "missing";
+    }
+    // Malformed JSON, permission errors, etc.
+    return "unknown";
+  }
 }
 
 /**
