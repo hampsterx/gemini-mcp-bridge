@@ -114,10 +114,11 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
     let stderr = "";
     let timedOut = false;
     let settled = false;
+    let killTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
       timedOut = true;
-      killProcessGroup(child);
+      killTimer = killProcessGroup(child);
     }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -130,6 +131,7 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       if (!settled) {
         settled = true;
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -146,6 +148,7 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       if (!settled) {
         settled = true;
         resolve({ stdout, stderr, exitCode: code, timedOut });
@@ -166,9 +169,9 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
  * which gives it its own process group. Without detached, -pid would target the
  * parent's process group and kill the MCP server itself.
  */
-function killProcessGroup(child: ChildProcess): void {
+function killProcessGroup(child: ChildProcess): NodeJS.Timeout | undefined {
   const pid = child.pid;
-  if (!pid) return;
+  if (!pid) return undefined;
 
   const useGroupKill = process.platform !== "win32";
 
@@ -191,7 +194,7 @@ function killProcessGroup(child: ChildProcess): void {
   kill("SIGTERM");
 
   // Force kill after 5s grace
-  setTimeout(() => kill("SIGKILL"), 5000);
+  return setTimeout(() => kill("SIGKILL"), 5000);
 }
 
 /**
