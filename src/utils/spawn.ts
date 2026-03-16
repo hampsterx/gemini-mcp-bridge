@@ -96,12 +96,14 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
   return new Promise<SpawnResult>((resolve, reject) => {
     let child: ChildProcess;
+    const detached = process.platform !== "win32";
     try {
       child = spawn(binary, options.args, {
         cwd: options.cwd,
         env,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
+        detached,
       });
     } catch (e) {
       reject(new Error(`Failed to spawn gemini CLI: ${e}`));
@@ -160,35 +162,36 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
 /**
  * Kill a process and its children. SIGTERM first, SIGKILL after grace period.
+ * Only uses process group kill (-pid) when the child was spawned with detached: true,
+ * which gives it its own process group. Without detached, -pid would target the
+ * parent's process group and kill the MCP server itself.
  */
 function killProcessGroup(child: ChildProcess): void {
   const pid = child.pid;
   if (!pid) return;
 
-  try {
-    // Kill process group
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Process group kill failed, try direct
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // Already dead
-    }
-  }
+  const useGroupKill = process.platform !== "win32";
 
-  // Force kill after 5s grace
-  setTimeout(() => {
+  const kill = (signal: NodeJS.Signals) => {
     try {
-      process.kill(-pid, "SIGKILL");
+      if (useGroupKill) {
+        process.kill(-pid, signal);
+      } else {
+        child.kill(signal);
+      }
     } catch {
       try {
-        child.kill("SIGKILL");
+        child.kill(signal);
       } catch {
         // Already dead
       }
     }
-  }, 5000);
+  };
+
+  kill("SIGTERM");
+
+  // Force kill after 5s grace
+  setTimeout(() => kill("SIGKILL"), 5000);
 }
 
 /**

@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { findGeminiBinary } from "../utils/spawn.js";
+import { buildSubprocessEnv } from "../utils/env.js";
+
+const require = createRequire(import.meta.url);
+const PKG_VERSION: string = (require("../../package.json") as { version: string }).version;
 
 export interface PingResult {
   cliFound: boolean;
@@ -21,9 +26,6 @@ export async function executePing(): Promise<PingResult> {
     10,
   );
 
-  // Get server version from package.json (injected at build or read at runtime)
-  const serverVersion = "0.1.0";
-
   // Try to get CLI version
   let cliFound = false;
   let version: string | null = null;
@@ -42,7 +44,7 @@ export async function executePing(): Promise<PingResult> {
         cliFound: false,
         version: null,
         authStatus: "missing",
-        serverVersion,
+        serverVersion: PKG_VERSION,
         nodeVersion: process.version,
         maxConcurrent,
       };
@@ -56,23 +58,11 @@ export async function executePing(): Promise<PingResult> {
   try {
     const result = execFileSync(
       binary,
-      ["-p", "Reply with exactly: OK", "--output-format", "json"],
+      ["--output-format", "json", "Reply with exactly: OK"],
       {
         encoding: "utf8",
         timeout: 15_000,
-        env: {
-          ...Object.fromEntries(
-            Object.entries(process.env).filter(
-              ([k]) =>
-                ["HOME", "PATH", "USER", "SHELL"].includes(k) ||
-                k.startsWith("GOOGLE_") ||
-                k.startsWith("GEMINI_") ||
-                k.startsWith("CLOUDSDK_"),
-            ),
-          ),
-          NO_COLOR: "1",
-          FORCE_COLOR: "0",
-        },
+        env: buildSubprocessEnv(),
       },
     );
     // If we got a response, auth is working
@@ -88,7 +78,7 @@ export async function executePing(): Promise<PingResult> {
     cliFound,
     version,
     authStatus,
-    serverVersion,
+    serverVersion: PKG_VERSION,
     nodeVersion: process.version,
     maxConcurrent,
   };
