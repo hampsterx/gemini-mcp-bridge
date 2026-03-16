@@ -56,20 +56,32 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
   let diff: string;
   let diffSource: ReviewResult["diffSource"];
 
-  if (base) {
-    diff = getBranchDiff(cwd, base);
-    diffSource = "branch";
-  } else if (uncommitted) {
-    diff = getUncommittedDiff(cwd);
-    diffSource = "uncommitted";
-  } else {
-    throw new Error("Either 'uncommitted' must be true or 'base' must be specified");
+  try {
+    if (base) {
+      diff = getBranchDiff(cwd, base);
+      diffSource = "branch";
+    } else if (uncommitted) {
+      diff = getUncommittedDiff(cwd);
+      diffSource = "uncommitted";
+    } else {
+      throw new Error("Either 'uncommitted' must be true or 'base' must be specified");
+    }
+  } catch (e) {
+    if (e instanceof Error && (e.message.includes("No uncommitted changes") || e.message.includes("No diff found"))) {
+      return {
+        response: e.message,
+        diffSource: base ? "branch" : "uncommitted",
+        base,
+        timedOut: false,
+      };
+    }
+    throw e;
   }
 
   const fullPrompt = REVIEW_PROMPT + diff;
 
   const result = await spawnGemini({
-    args: ["--output-format", "json", "-p", "-"],
+    args: ["--output-format", "json"],
     cwd,
     stdin: fullPrompt,
     timeout,

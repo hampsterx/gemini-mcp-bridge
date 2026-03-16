@@ -19,7 +19,10 @@ export interface QueryResult {
   timedOut: boolean;
 }
 
-/** Prompt length threshold — above this, pipe via stdin instead of -p flag. */
+/**
+ * Prompt length threshold for using stdin vs positional arg.
+ * Positional args are subject to ARG_MAX (~2MB), so pipe large prompts via stdin.
+ */
 const STDIN_THRESHOLD = 4000;
 
 /**
@@ -38,7 +41,8 @@ export async function executeQuery(input: QueryInput): Promise<QueryResult> {
   const fileContents = files.length > 0 ? await readFiles(files, cwd) : [];
   const fullPrompt = assemblePrompt(prompt, fileContents);
 
-  // Decide: -p flag for short prompts, stdin for long ones
+  // Large prompts or file attachments: pipe via stdin
+  // Short prompts: pass as positional arg (gemini "prompt")
   const useStdin = fullPrompt.length > STDIN_THRESHOLD || files.length > 0;
 
   const args: string[] = [];
@@ -49,10 +53,8 @@ export async function executeQuery(input: QueryInput): Promise<QueryResult> {
 
   args.push("--output-format", "json");
 
-  if (useStdin) {
-    args.push("-p", "-"); // Read prompt from stdin
-  } else {
-    args.push("-p", fullPrompt);
+  if (!useStdin) {
+    args.push(fullPrompt); // positional prompt
   }
 
   const result = await spawnGemini({

@@ -96,12 +96,14 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
   return new Promise<SpawnResult>((resolve, reject) => {
     let child: ChildProcess;
+    const detached = process.platform !== "win32";
     try {
       child = spawn(binary, options.args, {
         cwd: options.cwd,
         env,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
+        detached,
       });
     } catch (e) {
       reject(new Error(`Failed to spawn gemini CLI: ${e}`));
@@ -112,10 +114,11 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
     let stderr = "";
     let timedOut = false;
     let settled = false;
+    let killTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
       timedOut = true;
-      killProcessGroup(child);
+      killTimer = killProcessGroup(child);
     }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -128,6 +131,7 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       if (!settled) {
         settled = true;
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -144,6 +148,7 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       if (!settled) {
         settled = true;
         resolve({ stdout, stderr, exitCode: code, timedOut });
@@ -160,35 +165,36 @@ async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnRes
 
 /**
  * Kill a process and its children. SIGTERM first, SIGKILL after grace period.
+ * Only uses process group kill (-pid) when the child was spawned with detached: true,
+ * which gives it its own process group. Without detached, -pid would target the
+ * parent's process group and kill the MCP server itself.
  */
-function killProcessGroup(child: ChildProcess): void {
+function killProcessGroup(child: ChildProcess): NodeJS.Timeout | undefined {
   const pid = child.pid;
-  if (!pid) return;
+  if (!pid) return undefined;
 
-  try {
-    // Kill process group
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Process group kill failed, try direct
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // Already dead
-    }
-  }
+  const useGroupKill = process.platform !== "win32";
 
-  // Force kill after 5s grace
-  setTimeout(() => {
+  const kill = (signal: NodeJS.Signals) => {
     try {
-      process.kill(-pid, "SIGKILL");
+      if (useGroupKill) {
+        process.kill(-pid, signal);
+      } else {
+        child.kill(signal);
+      }
     } catch {
       try {
-        child.kill("SIGKILL");
+        child.kill(signal);
       } catch {
         // Already dead
       }
     }
-  }, 5000);
+  };
+
+  kill("SIGTERM");
+
+  // Force kill after 5s grace
+  return setTimeout(() => kill("SIGKILL"), 5000);
 }
 
 /**
