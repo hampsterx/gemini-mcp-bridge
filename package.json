@@ -12,7 +12,8 @@
   },
   "files": [
     "dist",
-    "policies"
+    "policies",
+    "prompts"
   ],
   "scripts": {
     "build": "tsc",
