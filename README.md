@@ -9,7 +9,7 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 | Tool | Description |
 |------|-------------|
 | **query** | Send a prompt to Gemini with optional file context. The CLI reads your GEMINI.md for project context automatically. |
-| **review** | Code review via git diff. Computes the diff locally and asks Gemini for structured findings (severity, file, line, suggestion). |
+| **review** | Agentic code review. Computes the diff locally, then Gemini explores the repo (reads files, follows imports, checks tests) before reviewing. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
 ## Prerequisites
@@ -69,14 +69,16 @@ Send a prompt to Gemini, optionally including file contents.
 
 ### review
 
-Code review via git diff sent to Gemini.
+Agentic code review. Computes the diff locally, then spawns Gemini CLI inside the repository where it uses its built-in tools (read_file, grep_search, list_directory) to explore surrounding code before reviewing. This means Gemini reads full files, follows imports, checks for tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.) for context.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `uncommitted` | boolean | `true` | Review uncommitted changes (staged + unstaged) |
 | `base` | string | — | Base branch to diff against (e.g. `main`) |
+| `focus` | string | — | Focus area for the review (e.g. `security`, `performance`) |
+| `quick` | boolean | `false` | Skip repo exploration, just review the diff text (faster but less context) |
 | `workingDirectory` | string | cwd | Repository directory (auto-resolves to git root) |
-| `timeout` | number | 120000 | Timeout in ms (max 600000) |
+| `timeout` | number | 300000 (agentic) / 120000 (quick) | Timeout in ms (max 600000) |
 
 ### ping
 
@@ -93,9 +95,11 @@ Environment variables:
 
 ## Security
 
+> **Note on agentic review**: The default agentic mode currently uses `--yolo` to give Gemini CLI shell access for running `git diff` and reading files. This means the model can execute arbitrary shell commands within the repository. A bundled policy file (`policies/review.toml`) restricts shell to read-only git commands, but the upstream CLI has a bug that prevents policy enforcement in headless mode ([google-gemini/gemini-cli#20469](https://github.com/google-gemini/gemini-cli/issues/20469)). Once the fix ships, we'll switch to policy-based filtering. Use `quick: true` if you want no shell access.
+
 - **Environment isolation**: Subprocess receives a minimal env allowlist (HOME, PATH, GOOGLE_*, GEMINI_*). Your API keys, tokens, and credentials are not leaked.
 - **Path sandboxing**: All file paths are resolved via `realpath` and verified within the working directory. No path traversal via `..` or symlinks.
-- **No shell execution**: Subprocess spawned with `shell: false` and args as an array. No command injection.
+- **No shell injection**: Subprocess spawned with `shell: false` and args as an array. No command injection from the bridge itself. (The CLI may execute shell commands internally in agentic mode — see note above.)
 - **Resource limits**: Max 3 concurrent spawns (configurable), 600s hard timeout cap, 1MB per-file size limit, 20 files max.
 
 ## License

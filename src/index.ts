@@ -72,7 +72,7 @@ server.tool(
 
 server.tool(
   "review",
-  "Code review via git diff sent to Gemini. Computes diff locally and asks Gemini for a structured review.",
+  "Repo-aware code review. Computes diff locally, then Gemini explores the repo with its built-in tools (read_file, grep, etc.) for full context before reviewing. Use quick: true for fast diff-only review.",
   {
     uncommitted: z
       .boolean()
@@ -82,6 +82,14 @@ server.tool(
       .string()
       .optional()
       .describe("Base branch/ref to diff against (e.g. 'main'). Overrides uncommitted."),
+    focus: z
+      .string()
+      .optional()
+      .describe("Optional focus area for the review (e.g. 'security', 'performance', 'error handling')"),
+    quick: z
+      .boolean()
+      .optional()
+      .describe("Skip repo exploration, just review the diff text. Faster but less context. Default: false"),
     workingDirectory: z
       .string()
       .optional()
@@ -89,13 +97,14 @@ server.tool(
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 120000, max: 600000)"),
+      .describe("Timeout in milliseconds (default: 300000 agentic / 120000 quick, max: 600000)"),
   },
   async (input) => {
     try {
       const result = await executeReview(input);
       const meta: string[] = [
         `Diff source: ${result.diffSource}`,
+        `Mode: ${result.mode}`,
       ];
       if (result.base) meta.push(`Base: ${result.base}`);
       if (result.timedOut) meta.push("(timed out)");

@@ -10,28 +10,56 @@ export interface GeminiJsonOutput {
 /**
  * Parse Gemini CLI output, handling JSON and plain text modes.
  *
+ * With --output-format json, Gemini CLI writes JSON to stderr (not stdout).
+ * We check both streams for JSON content.
+ *
  * Strategy:
- * 1. Try parsing as JSON (--output-format json)
- * 2. Fall back to ANSI-stripped plain text
+ * 1. Try parsing stdout as JSON
+ * 2. Try parsing stderr as JSON (where --output-format json actually writes)
+ * 3. Fall back to ANSI-stripped plain text from stdout
+ * 4. Error if both streams are empty
  */
 export function parseGeminiOutput(stdout: string, stderr: string): GeminiJsonOutput {
-  const cleaned = stripAnsi(stdout).trim();
-
-  // Try JSON parse first
-  try {
-    const parsed = JSON.parse(cleaned);
-    return extractFromJson(parsed);
-  } catch {
-    // Not JSON — treat as plain text response
-  }
-
-  // Plain text fallback
-  if (cleaned.length > 0) {
-    return { response: cleaned };
-  }
-
-  // No stdout — check stderr for useful info
+  const cleanedStdout = stripAnsi(stdout).trim();
   const cleanedStderr = stripAnsi(stderr).trim();
+
+  // Try stdout as JSON first
+  if (cleanedStdout.length > 0) {
+    try {
+      const parsed = JSON.parse(cleanedStdout);
+      return extractFromJson(parsed);
+    } catch {
+      // Not JSON — will try stderr or use as plain text below
+    }
+  }
+
+  // Try stderr as JSON (--output-format json writes here)
+  if (cleanedStderr.length > 0) {
+    try {
+      const parsed = JSON.parse(cleanedStderr);
+      return extractFromJson(parsed);
+    } catch {
+      // Full string isn't JSON — try extracting JSON object from mixed output
+      // (--yolo mode may prepend progress lines before the JSON)
+      const jsonStart = cleanedStderr.indexOf("{");
+      const jsonEnd = cleanedStderr.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        try {
+          const parsed = JSON.parse(cleanedStderr.slice(jsonStart, jsonEnd + 1));
+          return extractFromJson(parsed);
+        } catch {
+          // Not valid JSON either
+        }
+      }
+    }
+  }
+
+  // Plain text fallback from stdout
+  if (cleanedStdout.length > 0) {
+    return { response: cleanedStdout };
+  }
+
+  // No parseable output anywhere
   if (cleanedStderr.length > 0) {
     throw new Error(`Gemini CLI produced no output. stderr: ${cleanedStderr}`);
   }
