@@ -1,7 +1,13 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { basename, dirname, resolve } from "node:path";
 import { spawnGemini } from "../utils/spawn.js";
 import { parseGeminiOutput } from "../utils/parse.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
 import { verifyDirectory } from "../utils/security.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROMPTS_DIR = resolve(__dirname, "../../prompts");
 
 export interface ReviewInput {
   uncommitted?: boolean;
@@ -26,77 +32,34 @@ const AGENTIC_TIMEOUT = 300_000;
 /** Default timeout for quick review (diff-only, single pass). */
 const QUICK_TIMEOUT = 120_000;
 
+/** Load a prompt template from prompts/ and replace placeholders. */
+export function loadPrompt(filename: string, vars: Record<string, string>): string {
+  let result = readFileSync(resolve(PROMPTS_DIR, basename(filename)), "utf8");
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  return result;
+}
+
 /**
  * Agentic review prompt. The CLI has full tool access (shell, file read,
  * grep, etc.) and will run git commands, read files, and explore the repo.
  */
-function buildAgenticPrompt(diffSpec: string, focus?: string): string {
-  const focusSection = focus
-    ? `\n## Focus Area\n\nPay special attention to: ${focus}\n`
-    : "";
-
-  return `You are an expert code reviewer. You have access to tools that let you run shell commands, read files, search code, and list directories in this repository.
-
-## Instructions
-
-### Step 1: Gather Context
-
-1. Run \`${diffSpec}\` to see the changes being reviewed.
-2. Check the repo root for project instruction files (GEMINI.md, CLAUDE.md, AGENTS.md, COPILOT.md, .cursorrules, or similar). Read any that exist for project conventions and coding standards.
-3. Read the FULL contents of each changed file (not just the diff hunks) to understand surrounding context.
-4. For new imports, function calls, or type references in the diff, read the referenced files to understand interfaces and contracts.
-5. Check if tests exist for the changed code. Read them to assess coverage.
-6. Look for related configuration, type definitions, or documentation if relevant.
-
-### Step 2: Review
-
-For each issue found, provide:
-- **Severity**: critical / warning / suggestion
-- **File**: the file path
-- **Line**: approximate line number
-- **Issue**: clear description
-- **Suggestion**: how to fix it
-
-Focus on:
-- Bugs and logic errors
-- Security vulnerabilities
-- Performance issues
-- Missing error handling
-- Whether tests adequately cover the changes
-- Consistency with patterns in surrounding code and project conventions
-${focusSection}
-If the code looks good, say so briefly. Don't invent issues.`;
+export function buildAgenticPrompt(diffSpec: string, focus?: string): string {
+  return loadPrompt("review-agentic.md", {
+    DIFF_SPEC: diffSpec,
+    FOCUS_SECTION: focus ? `## Focus Area\n\nPay special attention to: ${focus}` : "",
+  });
 }
 
 /**
  * Quick review prompt. Pre-computed diff, no repo exploration.
  */
-function buildQuickPrompt(diff: string, focus?: string): string {
-  const focusSection = focus
-    ? `\n\nPay special attention to: ${focus}`
-    : "";
-
-  return `You are an expert code reviewer. Review the following git diff carefully.
-
-For each issue found, provide:
-- **Severity**: critical / warning / suggestion
-- **File**: the file path
-- **Line**: approximate line number (from the diff)
-- **Issue**: clear description
-- **Suggestion**: how to fix it
-
-Focus on:
-- Bugs and logic errors
-- Security vulnerabilities
-- Performance issues
-- Missing error handling
-- Code style issues (only if significant)
-${focusSection}
-If the code looks good, say so briefly. Don't invent issues.
-
----
-
-${diff}`;
+export function buildQuickPrompt(diff: string, focus?: string): string {
+  return loadPrompt("review-quick.md", {
+    DIFF: diff,
+    FOCUS_SECTION: focus ? `Pay special attention to: ${focus}` : "",
+  });
 }
 
 /**

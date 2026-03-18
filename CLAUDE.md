@@ -15,7 +15,7 @@ Open source MCP server that wraps Gemini CLI as a subprocess, exposing its best 
 MCP Client  --stdio-->  gemini-mcp-bridge  --spawn-->  gemini CLI subprocess
 ```
 
-We compute diffs and assemble prompts in TypeScript, then spawn the CLI. For the `review` tool, the CLI runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory) to explore surrounding code for context.
+We assemble prompts in TypeScript and spawn the CLI. The `review` tool loads prompt templates from `prompts/*.md` and fills placeholders; the CLI then runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory) to explore surrounding code for context.
 
 ## Tools
 
