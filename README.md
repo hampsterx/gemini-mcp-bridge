@@ -9,7 +9,7 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 | Tool | Description |
 |------|-------------|
 | **query** | Send a prompt to Gemini with optional file context. The CLI reads your GEMINI.md for project context automatically. |
-| **review** | Agentic code review. Computes the diff locally, then Gemini explores the repo (reads files, follows imports, checks tests) before reviewing. |
+| **review** | Agentic code review. Gemini CLI runs inside the repo, diffs the code, reads files, follows imports, and checks tests before reviewing. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
 ## Prerequisites
@@ -69,7 +69,7 @@ Send a prompt to Gemini, optionally including file contents.
 
 ### review
 
-Agentic code review. Computes the diff locally, then spawns Gemini CLI inside the repository where it uses its built-in tools (read_file, grep_search, list_directory) to explore surrounding code before reviewing. This means Gemini reads full files, follows imports, checks for tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.) for context.
+Agentic code review. Spawns Gemini CLI inside the repository where it runs `git diff`, reads full files, follows imports, checks for tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.) for context-aware reviews.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
