@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-18
+
+### Changed
+- Review prompts extracted from inline template literals to standalone markdown files in `prompts/`, loaded at runtime via `loadPrompt()`.
+
+### Fixed
+- Prompt placeholder replacement no longer corrupts diffs containing `{{word}}` patterns (Handlebars, Go templates, etc.).
+- `loadPrompt` now uses `basename()` to prevent path traversal.
+
+### Added
+- 9 tests for prompt template loading and placeholder substitution.
+
 ## [0.2.0] - 2026-03-18
 
 ### Added
