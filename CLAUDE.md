@@ -94,7 +94,8 @@ npm run typecheck    # tsc --noEmit
 1. Bump version in `package.json`
 2. Update `CHANGELOG.md` with new version and date
 3. Commit, tag (`v0.x.y`), push with `--tags`
-4. GitHub Actions publishes to npm automatically via OIDC
+4. Create a GitHub release for the tag with notes from CHANGELOG.md (`gh release create v0.x.y --title "v0.x.y — Short description" --notes "..."`)
+5. GitHub Actions publishes to npm automatically via OIDC
 
 First publish of a new package must be done manually (`npm publish --access public` with OTP) to register it on npmjs.com. OIDC can only update existing packages.
 
