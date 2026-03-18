@@ -98,6 +98,12 @@ npm run typecheck    # tsc --noEmit
 
 First publish of a new package must be done manually (`npm publish --access public` with OTP) to register it on npmjs.com. OIDC can only update existing packages.
 
+## Git Workflow
+
+- Use feature branches with PRs for all changes (do not commit directly to master)
+- Branch naming: `feat/`, `fix/`, `refactor/` prefix, kebab-case
+- Squash merge PRs
+
 ## Conventions
 
 - Prefer explicit over clever
