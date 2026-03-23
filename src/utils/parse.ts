@@ -119,3 +119,52 @@ function extractFromJson(parsed: unknown): GeminiJsonOutput {
 
   return { response: String(parsed) };
 }
+
+/** Maximum size of text to attempt JSON parsing on (1MB). */
+const MAX_EXTRACT_SIZE = 1_000_000;
+
+/**
+ * Extract a JSON value from model output text.
+ *
+ * The model may return raw JSON, JSON inside markdown fences, or JSON
+ * surrounded by explanatory text. This function tries progressively
+ * looser extraction strategies.
+ *
+ * Returns the parsed value and the raw JSON string, or null if no
+ * valid JSON could be found.
+ */
+export function extractJson(text: string): { json: unknown; raw: string } | null {
+  if (!text || text.length > MAX_EXTRACT_SIZE) return null;
+
+  // 1. Try parsing the full text as JSON
+  try {
+    return { json: JSON.parse(text), raw: text };
+  } catch { /* continue */ }
+
+  // 2. Strip markdown code fences and try the fenced content
+  const fenced = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenced) {
+    try {
+      return { json: JSON.parse(fenced[1]), raw: fenced[1] };
+    } catch { /* continue */ }
+  }
+
+  // 3. Find first {/[ and last }/] and try that slice
+  const objStart = text.indexOf("{");
+  const arrStart = text.indexOf("[");
+  const start =
+    objStart === -1 ? arrStart :
+    arrStart === -1 ? objStart :
+    Math.min(objStart, arrStart);
+  if (start !== -1) {
+    const end = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+    if (end > start) {
+      try {
+        const slice = text.slice(start, end + 1);
+        return { json: JSON.parse(slice), raw: slice };
+      } catch { /* continue */ }
+    }
+  }
+
+  return null;
+}

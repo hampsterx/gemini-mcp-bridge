@@ -8,6 +8,7 @@ import { executeQuery } from "./tools/query.js";
 import { executeReview } from "./tools/review.js";
 import { executeSearch } from "./tools/search.js";
 import { executePing } from "./tools/ping.js";
+import { executeStructured } from "./tools/structured.js";
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require("../package.json") as { version: string };
@@ -157,6 +158,62 @@ server.tool(
         : result.response;
 
       return { content: [{ type: "text", text }] };
+    } catch (e) {
+      return {
+        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// --- structured tool ---
+
+server.tool(
+  "structured",
+  "Generate a JSON response conforming to a provided JSON Schema. Use for data extraction, classification, or any task needing machine-parseable output.",
+  {
+    prompt: z.string().describe("What to generate or extract"),
+    schema: z
+      .string()
+      .describe("JSON Schema the response must conform to (as a JSON string)"),
+    files: z
+      .array(z.string())
+      .optional()
+      .describe("File paths to include as context (text only, no images)"),
+    model: z
+      .string()
+      .optional()
+      .describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+    workingDirectory: z
+      .string()
+      .optional()
+      .describe("Working directory for file paths"),
+    timeout: z
+      .number()
+      .optional()
+      .describe("Timeout in milliseconds (default: 60000)"),
+  },
+  async (input) => {
+    try {
+      const result = await executeStructured(input);
+      const meta: string[] = [];
+      if (result.errors) meta.push(`Errors: ${result.errors}`);
+      if (result.filesIncluded.length > 0) {
+        meta.push(`Files: ${result.filesIncluded.join(", ")}`);
+      }
+      if (result.timedOut) meta.push("(timed out)");
+      if (result.model) meta.push(`Model: ${result.model}`);
+
+      return {
+        content: [{
+          type: "text",
+          text: result.valid
+            ? result.response
+            : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
+        }],
+        isError: !result.valid,
+      };
     } catch (e) {
       return {
         content: [{ type: "text", text: `Error: ${(e as Error).message}` }],

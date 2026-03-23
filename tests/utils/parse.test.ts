@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGeminiOutput } from "../../src/utils/parse.js";
+import { parseGeminiOutput, extractJson } from "../../src/utils/parse.js";
 
 describe("parseGeminiOutput", () => {
   it("parses JSON with response field from stdout", () => {
@@ -108,5 +108,77 @@ describe("parseGeminiOutput", () => {
       // extractFromJson checks typeof === "string", empty string matches
       expect(result.response).toBe("");
     });
+  });
+});
+
+describe("extractJson", () => {
+  it("parses direct JSON string", () => {
+    const result = extractJson('{"name": "John", "age": 30}');
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual({ name: "John", age: 30 });
+  });
+
+  it("parses JSON array", () => {
+    const result = extractJson('[1, 2, 3]');
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual([1, 2, 3]);
+  });
+
+  it("extracts JSON from markdown code fences", () => {
+    const text = '```json\n{"name": "John"}\n```';
+    const result = extractJson(text);
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual({ name: "John" });
+  });
+
+  it("extracts JSON from untyped code fences", () => {
+    const text = '```\n{"name": "John"}\n```';
+    const result = extractJson(text);
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual({ name: "John" });
+  });
+
+  it("extracts JSON with preamble and postamble text", () => {
+    const text = 'Here is the result:\n{"name": "John", "age": 30}\nHope that helps!';
+    const result = extractJson(text);
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual({ name: "John", age: 30 });
+  });
+
+  it("handles nested braces in string values", () => {
+    const json = '{"template": "Hello {name}", "count": 1}';
+    const result = extractJson(json);
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual({ template: "Hello {name}", count: 1 });
+  });
+
+  it("returns null for non-JSON text", () => {
+    const result = extractJson("This is just plain text with no JSON");
+    expect(result).toBeNull();
+  });
+
+  it("returns null for empty string", () => {
+    const result = extractJson("");
+    expect(result).toBeNull();
+  });
+
+  it("returns null for text exceeding 1MB", () => {
+    const text = "x".repeat(1_000_001);
+    const result = extractJson(text);
+    expect(result).toBeNull();
+  });
+
+  it("extracts array from surrounding text", () => {
+    const text = 'The results are: [{"id": 1}, {"id": 2}] as requested.';
+    const result = extractJson(text);
+    expect(result).not.toBeNull();
+    expect(result!.json).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
+  it("returns raw string matching the extracted JSON", () => {
+    const text = 'Preamble\n```json\n{"key": "value"}\n```\nPostamble';
+    const result = extractJson(text);
+    expect(result).not.toBeNull();
+    expect(result!.raw).toBe('{"key": "value"}');
   });
 });
