@@ -1,0 +1,170 @@
+import _Ajv from "ajv";
+import { spawnGemini } from "../utils/spawn.js";
+import { parseGeminiOutput, extractJson } from "../utils/parse.js";
+import { checkErrorPatterns } from "../utils/errors.js";
+import { readFiles, assemblePrompt, isImageFile } from "../utils/files.js";
+import { verifyDirectory, MAX_FILES } from "../utils/security.js";
+import { loadPrompt } from "../utils/prompts.js";
+
+// Ajv's CJS/ESM interop wraps the constructor in a default property at runtime
+const Ajv = _Ajv.default ?? _Ajv;
+
+/** Maximum schema size in bytes (20KB). */
+export const MAX_SCHEMA_SIZE = 20_000;
+
+/** Prompt length threshold for using stdin vs positional arg. */
+const STDIN_THRESHOLD = 4000;
+
+/**
+ * Create a fresh Ajv instance per validation to avoid schema caching
+ * conflicts when different schemas share the same $id.
+ */
+function createAjv() {
+  return new Ajv({ allErrors: true });
+}
+
+export interface StructuredInput {
+  prompt: string;
+  schema: string;
+  files?: string[];
+  model?: string;
+  workingDirectory?: string;
+  timeout?: number;
+}
+
+export interface StructuredResult {
+  response: string;
+  valid: boolean;
+  errors?: string;
+  model?: string;
+  filesIncluded: string[];
+  filesSkipped: string[];
+  timedOut: boolean;
+}
+
+/**
+ * Execute a structured output query against Gemini CLI.
+ * Embeds the JSON schema in the prompt and validates the response.
+ */
+export async function executeStructured(input: StructuredInput): Promise<StructuredResult> {
+  const { prompt, files = [], model, timeout } = input;
+
+  // Validate schema string
+  if (input.schema.length > MAX_SCHEMA_SIZE) {
+    throw new Error(`Schema too large: ${input.schema.length} bytes (max ${MAX_SCHEMA_SIZE})`);
+  }
+
+  let parsedSchema: object;
+  try {
+    parsedSchema = JSON.parse(input.schema) as object;
+  } catch {
+    throw new Error("Invalid schema: not valid JSON");
+  }
+
+  // Compile schema to catch invalid JSON Schema before spawning
+  const ajv = createAjv();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let validate: any;
+  try {
+    validate = ajv.compile(parsedSchema);
+  } catch (e: unknown) {
+    throw new Error(`Invalid JSON Schema: ${(e as Error).message}`);
+  }
+
+  // Reject image files
+  const imageFiles = files.filter((f) => isImageFile(f));
+  if (imageFiles.length > 0) {
+    throw new Error("Structured tool does not support image files (text only)");
+  }
+
+  if (files.length > MAX_FILES) {
+    throw new Error(`Too many files: ${files.length} (max ${MAX_FILES})`);
+  }
+
+  // Resolve working directory
+  const cwd = input.workingDirectory
+    ? await verifyDirectory(input.workingDirectory)
+    : process.cwd();
+
+  // Read text files
+  const fileContents = files.length > 0 ? await readFiles(files, cwd) : [];
+
+  // Build prompt from template
+  const canonicalSchema = JSON.stringify(parsedSchema, null, 2);
+  const templatePrompt = loadPrompt("structured.md", {
+    SCHEMA: canonicalSchema,
+    PROMPT: prompt,
+  });
+  const fullPrompt = assemblePrompt(templatePrompt, fileContents);
+
+  const useStdin = fullPrompt.length > STDIN_THRESHOLD || files.length > 0;
+
+  const args: string[] = [];
+  if (model) args.push("--model", model);
+  args.push("--output-format", "json");
+  if (!useStdin) args.push(fullPrompt);
+
+  const result = await spawnGemini({
+    args,
+    cwd,
+    stdin: useStdin ? fullPrompt : undefined,
+    timeout,
+  });
+
+  const includedFiles = fileContents.filter((f) => !f.skipped).map((f) => f.path);
+  const skippedFiles = fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`);
+
+  if (result.timedOut) {
+    return {
+      response: `Structured query timed out after ${(timeout ?? 60000) / 1000}s.`,
+      valid: false,
+      filesIncluded: includedFiles,
+      filesSkipped: skippedFiles,
+      timedOut: true,
+    };
+  }
+
+  checkErrorPatterns(result.exitCode, result.stderr);
+
+  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+
+  // Extract JSON from model's text response
+  const extracted = extractJson(parsed.response);
+  if (!extracted) {
+    return {
+      response: parsed.response,
+      valid: false,
+      errors: "Could not extract JSON from response",
+      model,
+      filesIncluded: includedFiles,
+      filesSkipped: skippedFiles,
+      timedOut: false,
+    };
+  }
+
+  // Validate against schema
+  const valid = validate(extracted.json);
+  if (!valid) {
+    const errors = (validate.errors as Array<{ instancePath?: string; message?: string }> | null)
+      ?.map((e) => `${e.instancePath || "/"}: ${e.message}`)
+      .join("; ");
+    return {
+      response: extracted.raw,
+      valid: false,
+      errors,
+      model,
+      filesIncluded: includedFiles,
+      filesSkipped: skippedFiles,
+      timedOut: false,
+    };
+  }
+
+  return {
+    response: extracted.raw,
+    valid: true,
+    model,
+    filesIncluded: includedFiles,
+    filesSkipped: skippedFiles,
+    timedOut: false,
+  };
+}

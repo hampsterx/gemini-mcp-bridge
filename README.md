@@ -19,6 +19,7 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 | **query** | Send a prompt to Gemini with optional file context (text and images). The CLI reads your GEMINI.md for project context automatically. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
 | **review** | Agentic code review. Gemini CLI runs inside the repo, diffs the code, reads files, follows imports, and checks tests before reviewing. |
+| **structured** | Generate JSON conforming to a provided JSON Schema. Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
 ## Prerequisites
@@ -101,6 +102,27 @@ Agentic code review. Spawns Gemini CLI inside the repository where it runs `git 
 | `quick` | boolean | `false` | Skip repo exploration, just review the diff text (faster but less context) |
 | `workingDirectory` | string | cwd | Repository directory (auto-resolves to git root) |
 | `timeout` | number | 300000 (agentic) / 120000 (quick) | Timeout in ms (max 600000) |
+
+### structured
+
+Generate a JSON response conforming to a provided JSON Schema. The schema is embedded in the prompt, and the response is validated with [Ajv](https://ajv.js.org/). Returns `isError: true` with validation details if the response doesn't match.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt` | string | *required* | What to generate or extract |
+| `schema` | string | *required* | JSON Schema as a JSON string |
+| `files` | string[] | `[]` | Text file paths to include as context (no images) |
+| `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
+| `workingDirectory` | string | cwd | Working directory for file paths |
+| `timeout` | number | 60000 | Timeout in ms |
+
+**Example:**
+```json
+{
+  "prompt": "Extract the person's name and age from: 'John is 30 years old'",
+  "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"age\":{\"type\":\"number\"}},\"required\":[\"name\",\"age\"]}"
+}
+```
 
 ### ping
 
