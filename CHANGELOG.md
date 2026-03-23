@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`search` tool**: Google Search grounded queries. Spawns CLI in agentic mode with `google_web_search`, synthesizes answers with source URLs. Default 120s timeout.
+- **Image support in `query`**: Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode so the CLI reads them natively. Text files still inlined as before. Mixed text+image queries supported. 5MB size limit for images (vs 1MB for text).
+- `src/utils/errors.ts`: Shared `checkErrorPatterns()` for consistent auth/rate-limit error handling across all tools.
+- `src/utils/prompts.ts`: Shared `loadPrompt()` extracted from review tool, used by both review and search.
+- `isImageFile()` and `IMAGE_EXTENSIONS` helpers in `src/utils/files.ts`.
+- 23 new tests (query tool: 11, search tool: 8, isImageFile: 4).
+
+### Fixed
+- Review tool now checks for rate-limit/quota errors (previously only checked auth errors).
+
+### Changed
+- File reads in `readFiles()` run in parallel via `Promise.all` instead of sequentially.
+- Image path validation runs in parallel.
+
 ## [0.2.1] - 2026-03-18
 
 ### Changed

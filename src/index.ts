@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { executeQuery } from "./tools/query.js";
 import { executeReview } from "./tools/review.js";
+import { executeSearch } from "./tools/search.js";
 import { executePing } from "./tools/ping.js";
 
 const require = createRequire(import.meta.url);
@@ -20,13 +21,13 @@ const server = new McpServer({
 
 server.tool(
   "query",
-  "Send a prompt to Gemini CLI with optional file context. The CLI reads GEMINI.md for project context automatically.",
+  "Send a prompt to Gemini CLI with optional file context (text and images). Text files are inlined; image files (png, jpg, etc.) trigger agentic mode for native image reading. The CLI reads GEMINI.md for project context automatically.",
   {
     prompt: z.string().describe("The prompt to send to Gemini"),
     files: z
       .array(z.string())
       .optional()
-      .describe("File paths (relative to workingDirectory) to include in the prompt"),
+      .describe("File paths (text or images) relative to workingDirectory. Images: png, jpg, jpeg, gif, webp, bmp"),
     model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
     workingDirectory: z
       .string()
@@ -35,7 +36,7 @@ server.tool(
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 60000, max: 600000)"),
+      .describe("Timeout in milliseconds (default: 60000 for text, 120000 for images, max: 600000)"),
   },
   async (input) => {
     try {
@@ -43,6 +44,9 @@ server.tool(
       const meta: string[] = [];
       if (result.filesIncluded.length > 0) {
         meta.push(`Files included: ${result.filesIncluded.join(", ")}`);
+      }
+      if (result.imagesIncluded.length > 0) {
+        meta.push(`Images included: ${result.imagesIncluded.join(", ")}`);
       }
       if (result.filesSkipped.length > 0) {
         meta.push(`Files skipped: ${result.filesSkipped.join(", ")}`);
@@ -115,6 +119,44 @@ server.tool(
           text: `${result.response}\n\n---\n${meta.join("\n")}`,
         }],
       };
+    } catch (e) {
+      return {
+        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// --- search tool ---
+
+server.tool(
+  "search",
+  "Google Search grounded query. Gemini searches the web via google_web_search and synthesizes an answer with source URLs. Uses agentic mode.",
+  {
+    query: z.string().describe("Search query or question to research using Google Search"),
+    model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+    workingDirectory: z
+      .string()
+      .optional()
+      .describe("Working directory for the CLI"),
+    timeout: z
+      .number()
+      .optional()
+      .describe("Timeout in milliseconds (default: 120000, max: 600000)"),
+  },
+  async (input) => {
+    try {
+      const result = await executeSearch(input);
+      const meta: string[] = [];
+      if (result.timedOut) meta.push("(timed out)");
+      if (result.model) meta.push(`Model: ${result.model}`);
+
+      const text = meta.length > 0
+        ? `${result.response}\n\n---\n${meta.join("\n")}`
+        : result.response;
+
+      return { content: [{ type: "text", text }] };
     } catch (e) {
       return {
         content: [{ type: "text", text: `Error: ${(e as Error).message}` }],

@@ -1,13 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { basename, dirname, resolve } from "node:path";
 import { spawnGemini } from "../utils/spawn.js";
 import { parseGeminiOutput } from "../utils/parse.js";
+import { checkErrorPatterns } from "../utils/errors.js";
+import { loadPrompt } from "../utils/prompts.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
 import { verifyDirectory } from "../utils/security.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROMPTS_DIR = resolve(__dirname, "../../prompts");
 
 export interface ReviewInput {
   uncommitted?: boolean;
@@ -31,15 +27,6 @@ const AGENTIC_TIMEOUT = 300_000;
 
 /** Default timeout for quick review (diff-only, single pass). */
 const QUICK_TIMEOUT = 120_000;
-
-/** Load a prompt template from prompts/ and replace placeholders. */
-export function loadPrompt(filename: string, vars: Record<string, string>): string {
-  let result = readFileSync(resolve(PROMPTS_DIR, basename(filename)), "utf8");
-  for (const [key, value] of Object.entries(vars)) {
-    result = result.replaceAll(`{{${key}}}`, value);
-  }
-  return result;
-}
 
 /**
  * Agentic review prompt. The CLI has full tool access (shell, file read,
@@ -178,14 +165,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     };
   }
 
-  if (result.exitCode !== 0 && result.stderr) {
-    const stderr = result.stderr.toLowerCase();
-    if (stderr.includes("auth") || stderr.includes("credential")) {
-      throw new Error(
-        `Gemini CLI authentication error. Run: gemini auth login\n\nDetails: ${result.stderr.trim()}`,
-      );
-    }
-  }
+  checkErrorPatterns(result.exitCode, result.stderr);
 
   const parsed = parseGeminiOutput(result.stdout, result.stderr);
 
@@ -249,14 +229,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     };
   }
 
-  if (result.exitCode !== 0 && result.stderr) {
-    const stderr = result.stderr.toLowerCase();
-    if (stderr.includes("auth") || stderr.includes("credential")) {
-      throw new Error(
-        `Gemini CLI authentication error. Run: gemini auth login\n\nDetails: ${result.stderr.trim()}`,
-      );
-    }
-  }
+  checkErrorPatterns(result.exitCode, result.stderr);
 
   const parsed = parseGeminiOutput(result.stdout, result.stderr);
 

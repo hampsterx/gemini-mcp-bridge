@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFiles, assemblePrompt } from "../../src/utils/files.js";
+import { readFiles, assemblePrompt, isImageFile, IMAGE_EXTENSIONS } from "../../src/utils/files.js";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -55,5 +55,31 @@ describe("assemblePrompt", () => {
       { path: "big.bin", content: "", skipped: "2048KB exceeds 1024KB limit" },
     ]);
     expect(result).toContain("[SKIPPED: 2048KB exceeds 1024KB limit]");
+  });
+});
+
+describe("isImageFile", () => {
+  it("recognises all supported image extensions", () => {
+    for (const ext of IMAGE_EXTENSIONS) {
+      expect(isImageFile(`photo${ext}`)).toBe(true);
+    }
+  });
+
+  it("is case-insensitive", () => {
+    expect(isImageFile("photo.PNG")).toBe(true);
+    expect(isImageFile("photo.JpEg")).toBe(true);
+  });
+
+  it("rejects non-image files", () => {
+    expect(isImageFile("code.ts")).toBe(false);
+    expect(isImageFile("readme.md")).toBe(false);
+    expect(isImageFile("data.json")).toBe(false);
+    expect(isImageFile("style.css")).toBe(false);
+    expect(isImageFile("image.svg")).toBe(false);
+  });
+
+  it("rejects files with no extension", () => {
+    expect(isImageFile("Makefile")).toBe(false);
+    expect(isImageFile(".gitignore")).toBe(false);
   });
 });

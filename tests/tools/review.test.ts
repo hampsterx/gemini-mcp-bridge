@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { loadPrompt, buildAgenticPrompt, buildQuickPrompt } from "../../src/tools/review.js";
+import { loadPrompt } from "../../src/utils/prompts.js";
+import { buildAgenticPrompt, buildQuickPrompt } from "../../src/tools/review.js";
 
 describe("loadPrompt", () => {
   it("loads a template and replaces placeholders", () => {

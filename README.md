@@ -16,7 +16,8 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 
 | Tool | Description |
 |------|-------------|
-| **query** | Send a prompt to Gemini with optional file context. The CLI reads your GEMINI.md for project context automatically. |
+| **query** | Send a prompt to Gemini with optional file context (text and images). The CLI reads your GEMINI.md for project context automatically. |
+| **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
 | **review** | Agentic code review. Gemini CLI runs inside the repo, diffs the code, reads files, follows imports, and checks tests before reviewing. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
@@ -65,15 +66,28 @@ Add to your MCP settings:
 
 ### query
 
-Send a prompt to Gemini, optionally including file contents.
+Send a prompt to Gemini, optionally including file contents and images.
+
+Text files are read and inlined in the prompt. Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode so the CLI can read them natively via its `read_file` tool.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prompt` | string | *required* | The prompt to send |
-| `files` | string[] | `[]` | File paths (relative to workingDirectory) to include |
+| `files` | string[] | `[]` | File paths (text or images) relative to workingDirectory |
 | `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
 | `workingDirectory` | string | cwd | Working directory (CLI reads GEMINI.md from here) |
-| `timeout` | number | 60000 | Timeout in ms (max 600000) |
+| `timeout` | number | 60000 (text) / 120000 (images) | Timeout in ms (max 600000) |
+
+### search
+
+Google Search grounded query. Spawns Gemini CLI in agentic mode with access to `google_web_search`, then synthesizes an answer with source URLs.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | *required* | Search query or question to research |
+| `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
+| `workingDirectory` | string | cwd | Working directory for the CLI |
+| `timeout` | number | 120000 | Timeout in ms (max 600000) |
 
 ### review
 
@@ -103,12 +117,12 @@ Environment variables:
 
 ## Security
 
-> **Note on agentic review**: The default agentic mode currently uses `--yolo` to give Gemini CLI shell access for running `git diff` and reading files. This means the model can execute arbitrary shell commands within the repository. A bundled policy file (`policies/review.toml`) restricts shell to read-only git commands, but the upstream CLI has a bug that prevents policy enforcement in headless mode ([google-gemini/gemini-cli#20469](https://github.com/google-gemini/gemini-cli/issues/20469)). Once the fix ships, we'll switch to policy-based filtering. Use `quick: true` if you want no shell access.
+> **Note on agentic mode**: The `review` (default mode), `search`, and `query` (with images) tools use `--yolo` to give Gemini CLI shell access. This means the model can execute arbitrary shell commands within the repository. A bundled policy file (`policies/review.toml`) restricts shell to read-only git commands, but the upstream CLI has a bug that prevents policy enforcement in headless mode ([google-gemini/gemini-cli#20469](https://github.com/google-gemini/gemini-cli/issues/20469)). Once the fix ships, we'll switch to policy-based filtering. The `query` tool (text-only) and `review` with `quick: true` do not use agentic mode.
 
 - **Environment isolation**: Subprocess receives a minimal env allowlist (HOME, PATH, GOOGLE_*, GEMINI_*). Your API keys, tokens, and credentials are not leaked.
 - **Path sandboxing**: All file paths are resolved via `realpath` and verified within the working directory. No path traversal via `..` or symlinks.
 - **No shell injection**: Subprocess spawned with `shell: false` and args as an array. No command injection from the bridge itself. (The CLI may execute shell commands internally in agentic mode — see note above.)
-- **Resource limits**: Max 3 concurrent spawns (configurable), 600s hard timeout cap, 1MB per-file size limit, 20 files max.
+- **Resource limits**: Max 3 concurrent spawns (configurable), 600s hard timeout cap, 1MB per text file / 5MB per image file, 20 files max.
 
 ## License
 
