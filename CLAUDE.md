@@ -15,15 +15,24 @@ Open source MCP server that wraps Gemini CLI as a subprocess, exposing its best 
 MCP Client  --stdio-->  gemini-mcp-bridge  --spawn-->  gemini CLI subprocess
 ```
 
-We assemble prompts in TypeScript and spawn the CLI. The `review` tool loads prompt templates from `prompts/*.md` and fills placeholders; the CLI then runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory) to explore surrounding code for context.
+We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` tools load prompt templates from `prompts/*.md` via `src/utils/prompts.ts` and fill placeholders; the CLI then runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory, google_web_search) to explore surrounding code or the web for context.
 
 ## Tools
 
 | Tool | Purpose | Default Timeout |
 |------|---------|----------------|
-| `query` | One-shot query with optional file attachment | 60s |
+| `query` | One-shot query with optional text/image file attachment | 60s (text) / 120s (images) |
+| `search` | Google Search grounded query via `google_web_search` | 120s |
 | `review` | Agentic repo-aware code review (computes diff, CLI explores repo for context) | 300s (agentic) / 120s (quick) |
 | `ping` | Health check + CLI capability detection | 10s |
+
+### Query Tool Details
+
+Text files are read and inlined in the prompt (non-agentic mode). Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode (`--yolo`) so the CLI can read them natively via its `read_file` tool. Mixed text+image queries inline the text and reference images by path.
+
+### Search Tool Details
+
+Spawns CLI in agentic mode with access to `google_web_search`. Uses a prompt template (`prompts/search.md`) that instructs Gemini to search, synthesize, and cite sources.
 
 ### Review Tool Details
 
@@ -70,7 +79,7 @@ npm run typecheck    # tsc --noEmit
 - All paths resolved via `realpath`
 - Verify within allowed root directory (no traversal)
 - No symlink following outside root
-- Max file size: 1MB per file
+- Max file size: 1MB per text file, 5MB per image file
 
 ### Working Directory
 - Accept `workingDirectory` param on all tools
