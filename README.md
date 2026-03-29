@@ -12,13 +12,38 @@ MCP server that wraps [Gemini CLI](https://github.com/google-gemini/gemini-cli) 
 
 Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or any tool that speaks MCP.
 
+## How does this compare to other Gemini MCP servers?
+
+There are several Gemini MCP servers available. The main difference is approach: this project wraps the **Gemini CLI** as a subprocess, while most others call the **Gemini API** directly. The CLI approach gives us agentic capabilities (repo exploration, web search) without reimplementing them.
+
+| | gemini-mcp-bridge | [@rlabs-inc/gemini-mcp](https://github.com/RLabs-Inc/gemini-mcp) | [gemini-mcp-tool](https://github.com/jamubc/gemini-mcp-tool) | [mcp-server-gemini](https://github.com/aliargun/mcp-server-gemini) |
+|---|---|---|---|---|
+| **Approach** | CLI subprocess | API direct | CLI subprocess | API direct |
+| **Tools** | 5 (query, search, review, structured, ping) | 37 (query, search, research, code exec, media gen, TTS, ...) | 4 (ask-gemini, sandbox-test, ping, help) | 6 (generate, analyze image, count tokens, embed, ...) |
+| **Agentic code review** | Yes (CLI diffs, reads files, follows imports) | No | No | No |
+| **Web search** | Yes (via CLI's `google_web_search`) | Yes (API-level) | Via CLI | Yes (API-level) |
+| **Structured output** | Yes (JSON Schema validated) | Yes | No | JSON mode |
+| **Image support** | Yes (query attachments) | Yes (analysis + generation) | No | Yes (analysis) |
+| **Code execution** | No | Yes (Python sandbox) | Sandbox mode | No |
+| **Media generation** | No | Yes (image, video, TTS) | No | No |
+| **Security model** | Env allowlist, path sandboxing, shell:false | Basic | Basic | Basic |
+| **Requires Gemini CLI** | Yes | No (API key only) | Yes | No (API key only) |
+
+**When to pick gemini-mcp-bridge**: You want agentic code review where Gemini explores the repo itself, web search via the CLI, or structured output with schema validation, and you're comfortable installing the Gemini CLI.
+
+**When to pick RLabs**: You want the broadest feature set (media generation, deep research, code execution, caching) and prefer API-key-only setup with no CLI dependency.
+
+**When to pick gemini-mcp-tool**: You want a lightweight CLI wrapper focused on large-context codebase analysis from Claude Code.
+
+**When to pick mcp-server-gemini**: You want a simple API wrapper with good docs and broad MCP client support.
+
 ## Tools
 
 | Tool | Description |
 |------|-------------|
 | **query** | Send a prompt to Gemini with optional file context (text and images). The CLI reads your GEMINI.md for project context automatically. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
-| **review** | Agentic code review. Gemini CLI runs inside the repo, diffs the code, reads files, follows imports, and checks tests before reviewing. |
+| **review** | Agentic code review. Gemini CLI runs inside the repo, diffs the code, reads files, follows imports, and checks tests before reviewing. Supports focused reviews (security, performance, etc.) and quick diff-only mode. |
 | **structured** | Generate JSON conforming to a provided JSON Schema. Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
@@ -103,6 +128,8 @@ Agentic code review. Spawns Gemini CLI inside the repository where it runs `git 
 | `workingDirectory` | string | cwd | Repository directory (auto-resolves to git root) |
 | `timeout` | number | 300000 (agentic) / 120000 (quick) | Timeout in ms (max 600000) |
 
+The Gemini CLI has no native code review feature. Google offers a [separate extension](https://github.com/gemini-cli-extensions/code-review) that requires the GitHub MCP server and CI environment variables (`REPOSITORY`, `PULL_REQUEST_NUMBER`). This tool takes a different approach: it computes the diff locally via `git diff`, loads a prompt template (`prompts/review-agentic.md`), and spawns the CLI in agentic mode so it can read files, follow imports, and check tests itself.
+
 ### structured
 
 Generate a JSON response conforming to a provided JSON Schema. The schema is embedded in the prompt, and the response is validated with [Ajv](https://ajv.js.org/). Returns `isError: true` with validation details if the response doesn't match.
@@ -136,6 +163,20 @@ Environment variables:
 |----------|---------|-------------|
 | `GEMINI_CLI_PATH` | `gemini` | Path to gemini CLI binary |
 | `GEMINI_MAX_CONCURRENT` | `3` | Max concurrent subprocess spawns |
+
+### Prompt Templates
+
+The `review`, `search`, and `structured` tools use prompt templates from the `prompts/` directory:
+
+```text
+prompts/
+├── review-agentic.md   # Full agentic review (default)
+├── review-quick.md     # Quick diff-only review
+├── search.md           # Web search synthesis
+└── structured.md       # JSON Schema output
+```
+
+If you're running from a local clone, you can edit these to adjust review style, search instructions, or output formatting. When running via `npx`, the bundled templates are used.
 
 ## Security
 
