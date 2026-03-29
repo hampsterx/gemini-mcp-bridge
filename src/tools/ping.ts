@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { findGeminiBinary } from "../utils/spawn.js";
 import { buildSubprocessEnv } from "../utils/env.js";
+import { getDefaultModel } from "../utils/model.js";
 
 const require = createRequire(import.meta.url);
 const PKG_VERSION: string = (require("../../package.json") as { version: string }).version;
@@ -13,6 +14,7 @@ export interface PingResult {
   cliFound: boolean;
   version: string | null;
   authStatus: "ok" | "expired" | "missing" | "unknown";
+  defaultModel: string | null;
   serverVersion: string;
   nodeVersion: string;
   maxConcurrent: number;
@@ -93,6 +95,7 @@ export async function executePing(): Promise<PingResult> {
         cliFound: false,
         version: null,
         authStatus: "missing",
+        defaultModel: getDefaultModel() ?? null,
         serverVersion: PKG_VERSION,
         nodeVersion: process.version,
         maxConcurrent,
@@ -103,11 +106,13 @@ export async function executePing(): Promise<PingResult> {
   }
 
   const authStatus = detectAuthStatus();
+  const defaultModel = getDefaultModel() ?? null;
 
   return {
     cliFound,
     version,
     authStatus,
+    defaultModel,
     serverVersion: PKG_VERSION,
     nodeVersion: process.version,
     maxConcurrent,

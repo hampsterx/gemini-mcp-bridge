@@ -3,6 +3,7 @@ import { parseGeminiOutput } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt } from "../utils/prompts.js";
 import { verifyDirectory } from "../utils/security.js";
+import { resolveModel } from "../utils/model.js";
 
 export interface SearchInput {
   query: string;
@@ -28,7 +29,8 @@ const SEARCH_TIMEOUT = 120_000;
  * web and synthesize an answer with source URLs.
  */
 export async function executeSearch(input: SearchInput): Promise<SearchResult> {
-  const { query, model } = input;
+  const { query } = input;
+  const model = resolveModel(input.model);
   const timeout = input.timeout ?? SEARCH_TIMEOUT;
 
   const cwd = input.workingDirectory

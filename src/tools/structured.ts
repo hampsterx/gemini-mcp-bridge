@@ -5,6 +5,7 @@ import { checkErrorPatterns } from "../utils/errors.js";
 import { readFiles, assemblePrompt, isImageFile } from "../utils/files.js";
 import { verifyDirectory, MAX_FILES } from "../utils/security.js";
 import { loadPrompt } from "../utils/prompts.js";
+import { resolveModel } from "../utils/model.js";
 
 // Ajv's CJS/ESM interop wraps the constructor in a default property at runtime
 const Ajv = _Ajv.default ?? _Ajv;
@@ -47,7 +48,8 @@ export interface StructuredResult {
  * Embeds the JSON schema in the prompt and validates the response.
  */
 export async function executeStructured(input: StructuredInput): Promise<StructuredResult> {
-  const { prompt, files = [], model, timeout } = input;
+  const { prompt, files = [], timeout } = input;
+  const model = resolveModel(input.model);
 
   // Validate schema string
   if (input.schema.length > MAX_SCHEMA_SIZE) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -23,10 +23,21 @@ function jsonResponse(text: string) {
 
 describe("executeSearch", () => {
   let tmpDir: string;
+  let savedDefaultModel: string | undefined;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    savedDefaultModel = process.env["GEMINI_DEFAULT_MODEL"];
+    delete process.env["GEMINI_DEFAULT_MODEL"];
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-search-test-"));
+  });
+
+  afterEach(() => {
+    if (savedDefaultModel !== undefined) {
+      process.env["GEMINI_DEFAULT_MODEL"] = savedDefaultModel;
+    } else {
+      delete process.env["GEMINI_DEFAULT_MODEL"];
+    }
   });
 
   it("spawns CLI with --yolo for google_web_search access", async () => {
@@ -94,6 +105,47 @@ describe("executeSearch", () => {
     const args = mockSpawn.mock.calls[0][0].args;
     expect(args).toContain("--model");
     expect(args).toContain("gemini-2.5-flash");
+  });
+
+  it("uses GEMINI_DEFAULT_MODEL when no explicit model", async () => {
+    process.env["GEMINI_DEFAULT_MODEL"] = "gemini-2.5-pro";
+    mockSpawn.mockResolvedValue(jsonResponse("ok"));
+
+    await executeSearch({
+      query: "test",
+      workingDirectory: tmpDir,
+    });
+
+    const args = mockSpawn.mock.calls[0][0].args;
+    expect(args).toContain("--model");
+    expect(args).toContain("gemini-2.5-pro");
+  });
+
+  it("explicit model overrides GEMINI_DEFAULT_MODEL", async () => {
+    process.env["GEMINI_DEFAULT_MODEL"] = "gemini-2.5-pro";
+    mockSpawn.mockResolvedValue(jsonResponse("ok"));
+
+    await executeSearch({
+      query: "test",
+      model: "gemini-2.5-flash",
+      workingDirectory: tmpDir,
+    });
+
+    const args = mockSpawn.mock.calls[0][0].args;
+    expect(args).toContain("gemini-2.5-flash");
+    expect(args).not.toContain("gemini-2.5-pro");
+  });
+
+  it("omits --model when neither explicit nor env var set", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("ok"));
+
+    await executeSearch({
+      query: "test",
+      workingDirectory: tmpDir,
+    });
+
+    const args = mockSpawn.mock.calls[0][0].args;
+    expect(args).not.toContain("--model");
   });
 
   it("handles timeout gracefully", async () => {

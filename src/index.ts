@@ -95,6 +95,7 @@ server.tool(
       .boolean()
       .optional()
       .describe("Skip repo exploration, just review the diff text. Faster but less context. Default: false"),
+    model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
     workingDirectory: z
       .string()
       .optional()
@@ -237,6 +238,7 @@ server.tool(
         `CLI found: ${result.cliFound ? "yes" : "NO — install with: npm i -g @google/gemini-cli"}`,
         `CLI version: ${result.version ?? "unknown"}`,
         `Auth status: ${result.authStatus}`,
+        `Default model: ${result.defaultModel ?? "(CLI default)"}`,
         `Server version: ${result.serverVersion}`,
         `Node version: ${result.nodeVersion}`,
         `Max concurrent: ${result.maxConcurrent}`,

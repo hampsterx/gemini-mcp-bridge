@@ -4,12 +4,14 @@ import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt } from "../utils/prompts.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
 import { verifyDirectory } from "../utils/security.js";
+import { resolveModel } from "../utils/model.js";
 
 export interface ReviewInput {
   uncommitted?: boolean;
   base?: string;
   focus?: string;
   quick?: boolean;
+  model?: string;
   workingDirectory?: string;
   timeout?: number;
 }
@@ -62,6 +64,7 @@ export function buildQuickPrompt(diff: string, focus?: string): string {
  */
 export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
   const { uncommitted = true, base, focus, quick = false } = input;
+  const model = resolveModel(input.model);
   const defaultTimeout = quick ? QUICK_TIMEOUT : AGENTIC_TIMEOUT;
   const timeout = input.timeout ?? defaultTimeout;
 
@@ -72,10 +75,10 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
   const cwd = getGitRoot(requestedDir);
 
   if (quick) {
-    return executeQuickReview({ cwd, uncommitted, base, focus, timeout });
+    return executeQuickReview({ cwd, uncommitted, base, focus, model, timeout });
   }
 
-  return executeAgenticReview({ cwd, uncommitted, base, focus, timeout });
+  return executeAgenticReview({ cwd, uncommitted, base, focus, model, timeout });
 }
 
 interface InternalReviewInput {
@@ -83,6 +86,7 @@ interface InternalReviewInput {
   uncommitted: boolean;
   base?: string;
   focus?: string;
+  model?: string;
   timeout: number;
 }
 
@@ -97,7 +101,7 @@ interface InternalReviewInput {
  * --yolo to --policy + --approval-mode auto_edit for tighter control.
  */
 async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewResult> {
-  const { cwd, uncommitted, base, focus, timeout } = input;
+  const { cwd, uncommitted, base, focus, model, timeout } = input;
 
   // Build the git diff command for the prompt (CLI will run it)
   let diffSpec: string;
@@ -145,11 +149,12 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
 
   const prompt = buildAgenticPrompt(diffSpec, focus);
 
+  const args: string[] = ["--yolo"];
+  if (model) args.push("--model", model);
+  args.push("--output-format", "json");
+
   const result = await spawnGemini({
-    args: [
-      "--yolo",
-      "--output-format", "json",
-    ],
+    args,
     cwd,
     stdin: prompt,
     timeout,
@@ -182,7 +187,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
  * Quick review: pre-computed diff, single-pass, no repo exploration.
  */
 async function executeQuickReview(input: InternalReviewInput): Promise<ReviewResult> {
-  const { cwd, uncommitted, base, focus, timeout } = input;
+  const { cwd, uncommitted, base, focus, model, timeout } = input;
 
   let diff: string;
   let diffSource: ReviewResult["diffSource"];
@@ -212,8 +217,12 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
 
   const fullPrompt = buildQuickPrompt(diff, focus);
 
+  const args: string[] = [];
+  if (model) args.push("--model", model);
+  args.push("--output-format", "json");
+
   const result = await spawnGemini({
-    args: ["--output-format", "json"],
+    args,
     cwd,
     stdin: fullPrompt,
     timeout,
