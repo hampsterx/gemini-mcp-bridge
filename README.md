@@ -14,26 +14,41 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 
 ## How does this compare to other Gemini MCP servers?
 
-There are several Gemini MCP servers available. The main difference is approach: this project wraps the **Gemini CLI** as a subprocess, while most others call the **Gemini API** directly. The CLI approach gives us agentic capabilities (repo exploration, web search) without reimplementing them.
+There are several Gemini MCP servers available. They split into two camps: **CLI wrappers** that spawn the Gemini CLI as a subprocess, and **API servers** that call the Gemini API directly. CLI wrappers get agentic capabilities (repo exploration, web search) for free; API servers avoid the CLI dependency.
 
-| | gemini-mcp-bridge | [@rlabs-inc/gemini-mcp](https://github.com/RLabs-Inc/gemini-mcp) | [gemini-mcp-tool](https://github.com/jamubc/gemini-mcp-tool) | [mcp-server-gemini](https://github.com/aliargun/mcp-server-gemini) |
-|---|---|---|---|---|
-| **Approach** | CLI subprocess | API direct | CLI subprocess | API direct |
-| **Tools** | 5 (query, search, review, structured, ping) | 37 (query, search, research, code exec, media gen, TTS, ...) | 4 (ask-gemini, sandbox-test, ping, help) | 6 (generate, analyze image, count tokens, embed, ...) |
-| **Agentic code review** | Yes (CLI diffs, reads files, follows imports) | No | No | No |
-| **Web search** | Yes (via CLI's `google_web_search`) | Yes (API-level) | Via CLI | Yes (API-level) |
-| **Structured output** | Yes (JSON Schema validated) | Yes | No | JSON mode |
-| **Image support** | Yes (query attachments) | Yes (analysis + generation) | No | Yes (analysis) |
-| **Code execution** | No | Yes (Python sandbox) | Sandbox mode | No |
-| **Media generation** | No | Yes (image, video, TTS) | No | No |
-| **Security model** | Env allowlist, path sandboxing, shell:false | Basic | Basic | Basic |
-| **Requires Gemini CLI** | Yes | No (API key only) | Yes | No (API key only) |
+### CLI-based (wraps Gemini CLI)
 
-**When to pick gemini-mcp-bridge**: You want agentic code review where Gemini explores the repo itself, web search via the CLI, or structured output with schema validation, and you're comfortable installing the Gemini CLI.
+| | gemini-mcp-bridge | [@tuannvm/gemini-mcp-server](https://github.com/tuannvm/gemini-mcp-server) | [gemini-mcp-tool](https://github.com/jamubc/gemini-mcp-tool) |
+|---|---|---|---|
+| **CLI mode** | Agentic (CLI explores repo, runs tools) | One-shot (prompt in, response out) | One-shot |
+| **Tools** | 5 (query, search, review, structured, ping) | 5 (gemini, web-search, analyze-media, shell, brainstorm) | 4 (ask-gemini, sandbox-test, ping, help) |
+| **Agentic code review** | Yes (CLI diffs, reads files, follows imports) | No | No |
+| **Web search** | Yes (via CLI's `google_web_search`) | Yes (via CLI) | Yes (via CLI) |
+| **Structured output** | Yes (JSON Schema validated) | No | No |
+| **Image support** | Yes (query attachments) | Yes (analyze-media tool) | No |
+| **Shell command gen** | No | Yes (generate + execute) | No |
+| **Google Workspace** | No | Yes (via CLI extensions) | No |
+| **Security model** | Env allowlist, path sandboxing, shell:false | Basic | Basic |
+
+**When to pick gemini-mcp-bridge**: You want agentic code review where Gemini explores the repo itself, web search via the CLI, or structured output with schema validation.
+
+**When to pick @tuannvm/gemini-mcp-server**: You want one-shot Gemini queries, shell command generation, brainstorming, or Google Workspace integration via CLI extensions.
+
+**When to pick gemini-mcp-tool**: You want a lightweight CLI wrapper focused on large-context codebase analysis.
+
+### API-based (calls Gemini API directly)
+
+| | [@rlabs-inc/gemini-mcp](https://github.com/RLabs-Inc/gemini-mcp) | [mcp-server-gemini](https://github.com/aliargun/mcp-server-gemini) |
+|---|---|---|
+| **Tools** | 37 (query, search, research, code exec, media gen, TTS, ...) | 6 (generate, analyze image, count tokens, embed, ...) |
+| **Web search** | Yes (API-level) | Yes (API-level) |
+| **Structured output** | Yes | JSON mode |
+| **Image support** | Yes (analysis + generation) | Yes (analysis) |
+| **Code execution** | Yes (Python sandbox) | No |
+| **Media generation** | Yes (image, video, TTS) | No |
+| **Requires Gemini CLI** | No (API key only) | No (API key only) |
 
 **When to pick RLabs**: You want the broadest feature set (media generation, deep research, code execution, caching) and prefer API-key-only setup with no CLI dependency.
-
-**When to pick gemini-mcp-tool**: You want a lightweight CLI wrapper focused on large-context codebase analysis from Claude Code.
 
 **When to pick mcp-server-gemini**: You want a simple API wrapper with good docs and broad MCP client support.
 
