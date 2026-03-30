@@ -162,6 +162,7 @@ Environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GEMINI_DEFAULT_MODEL` | *(CLI default)* | Default model for all tools (e.g. `gemini-2.5-flash`). Overridden by explicit `model` parameter on individual tool calls. |
+| `GEMINI_FALLBACK_MODEL` | `gemini-2.5-flash` | Fallback model used when the primary model returns a quota/rate-limit error. Set to `none` to disable automatic fallback. |
 | `GEMINI_CLI_PATH` | `gemini` | Path to gemini CLI binary |
 | `GEMINI_MAX_CONCURRENT` | `3` | Max concurrent subprocess spawns |
 

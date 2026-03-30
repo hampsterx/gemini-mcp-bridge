@@ -6,6 +6,20 @@ export function getDefaultModel(): string | undefined {
   return process.env["GEMINI_DEFAULT_MODEL"]?.trim() || undefined;
 }
 
+/** Default fallback model when quota is exhausted. */
+const DEFAULT_FALLBACK_MODEL = "gemini-2.5-flash";
+
+/**
+ * Return the configured fallback model for quota exhaustion retries.
+ * Returns undefined if explicitly disabled via "none".
+ * Defaults to gemini-2.5-flash when unset.
+ */
+export function getFallbackModel(): string | undefined {
+  const value = process.env["GEMINI_FALLBACK_MODEL"]?.trim();
+  if (value?.toLowerCase() === "none") return undefined;
+  return value || DEFAULT_FALLBACK_MODEL;
+}
+
 /**
  * Resolve the Gemini model to use, applying precedence:
  * 1. Explicit `model` parameter (caller override)

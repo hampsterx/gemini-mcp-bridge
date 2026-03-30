@@ -4,6 +4,7 @@ import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt } from "../utils/prompts.js";
 import { verifyDirectory } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
+import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
 
 export interface SearchInput {
   query: string;
@@ -15,6 +16,7 @@ export interface SearchInput {
 export interface SearchResult {
   response: string;
   model?: string;
+  fallbackUsed?: boolean;
   timedOut: boolean;
 }
 
@@ -31,7 +33,7 @@ const SEARCH_TIMEOUT = 120_000;
 export async function executeSearch(input: SearchInput): Promise<SearchResult> {
   const { query } = input;
   const model = resolveModel(input.model);
-  const timeout = input.timeout ?? SEARCH_TIMEOUT;
+  const timeout = Math.min(input.timeout ?? SEARCH_TIMEOUT, HARD_TIMEOUT_CAP);
 
   const cwd = input.workingDirectory
     ? await verifyDirectory(input.workingDirectory)
@@ -39,21 +41,21 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
 
   const prompt = loadPrompt("search.md", { QUERY: query });
 
-  const args: string[] = ["--yolo"];
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
-
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: prompt,
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = ["--yolo"];
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
+    },
     timeout,
-  });
+  );
 
   if (result.timedOut) {
     return {
       response: `Search timed out after ${timeout / 1000}s. Try a more specific query or increase the timeout.`,
-      model,
+      model: fallbackUsed ? fallbackModel : model,
       timedOut: true,
     };
   }
@@ -64,7 +66,8 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
 
   return {
     response: parsed.response,
-    model,
+    model: fallbackUsed ? fallbackModel : model,
+    fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
   };
 }

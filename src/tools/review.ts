@@ -5,6 +5,7 @@ import { loadPrompt } from "../utils/prompts.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
 import { verifyDirectory } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
+import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
 
 export interface ReviewInput {
   uncommitted?: boolean;
@@ -21,6 +22,7 @@ export interface ReviewResult {
   diffSource: "uncommitted" | "branch";
   base?: string;
   mode: "agentic" | "quick";
+  fallbackUsed?: boolean;
   timedOut: boolean;
 }
 
@@ -66,7 +68,7 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
   const { uncommitted = true, base, focus, quick = false } = input;
   const model = resolveModel(input.model);
   const defaultTimeout = quick ? QUICK_TIMEOUT : AGENTIC_TIMEOUT;
-  const timeout = input.timeout ?? defaultTimeout;
+  const timeout = Math.min(input.timeout ?? defaultTimeout, HARD_TIMEOUT_CAP);
 
   // Resolve to git root
   const requestedDir = input.workingDirectory
@@ -149,16 +151,16 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
 
   const prompt = buildAgenticPrompt(diffSpec, focus);
 
-  const args: string[] = ["--yolo"];
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
-
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: prompt,
+  const { result, fallbackUsed } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = ["--yolo"];
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
+    },
     timeout,
-  });
+  );
 
   if (result.timedOut) {
     return {
@@ -166,6 +168,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
       diffSource,
       base,
       mode: "agentic",
+      fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
     };
   }
@@ -179,6 +182,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     diffSource,
     base,
     mode: "agentic",
+    fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
   };
 }
@@ -217,16 +221,16 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
 
   const fullPrompt = buildQuickPrompt(diff, focus);
 
-  const args: string[] = [];
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
-
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: fullPrompt,
+  const { result, fallbackUsed } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = [];
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
+    },
     timeout,
-  });
+  );
 
   if (result.timedOut) {
     return {
@@ -234,6 +238,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
       diffSource,
       base,
       mode: "quick",
+      fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
     };
   }
@@ -247,6 +252,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     diffSource,
     base,
     mode: "quick",
+    fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
   };
 }
