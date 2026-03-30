@@ -161,6 +161,7 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `GEMINI_DEFAULT_MODEL` | *(CLI default)* | Default model for all tools (e.g. `gemini-2.5-flash`). Overridden by explicit `model` parameter on individual tool calls. |
 | `GEMINI_CLI_PATH` | `gemini` | Path to gemini CLI binary |
 | `GEMINI_MAX_CONCURRENT` | `3` | Max concurrent subprocess spawns |
 

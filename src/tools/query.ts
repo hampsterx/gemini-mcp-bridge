@@ -8,6 +8,7 @@ import {
   MAX_IMAGE_FILE_SIZE,
 } from "../utils/files.js";
 import { resolveAndVerify, checkFileSize, verifyDirectory, MAX_FILES } from "../utils/security.js";
+import { resolveModel } from "../utils/model.js";
 
 export interface QueryInput {
   prompt: string;
@@ -44,7 +45,8 @@ const IMAGE_QUERY_TIMEOUT = 120_000;
  * in the prompt as before.
  */
 export async function executeQuery(input: QueryInput): Promise<QueryResult> {
-  const { prompt, files = [], model, timeout } = input;
+  const { prompt, files = [], timeout } = input;
+  const model = resolveModel(input.model);
 
   // Resolve working directory
   const cwd = input.workingDirectory
