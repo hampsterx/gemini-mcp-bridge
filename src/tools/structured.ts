@@ -6,6 +6,7 @@ import { readFiles, assemblePrompt, isImageFile } from "../utils/files.js";
 import { verifyDirectory, MAX_FILES } from "../utils/security.js";
 import { loadPrompt } from "../utils/prompts.js";
 import { resolveModel } from "../utils/model.js";
+import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
 
 // Ajv's CJS/ESM interop wraps the constructor in a default property at runtime
 const Ajv = _Ajv.default ?? _Ajv;
@@ -38,6 +39,7 @@ export interface StructuredResult {
   valid: boolean;
   errors?: string;
   model?: string;
+  fallbackUsed?: boolean;
   filesIncluded: string[];
   filesSkipped: string[];
   timedOut: boolean;
@@ -100,26 +102,30 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
   const fullPrompt = assemblePrompt(templatePrompt, fileContents);
 
   const useStdin = fullPrompt.length > STDIN_THRESHOLD || files.length > 0;
+  const effectiveTimeout = Math.min(timeout ?? 60_000, HARD_TIMEOUT_CAP);
 
-  const args: string[] = [];
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
-  if (!useStdin) args.push(fullPrompt);
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = [];
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      if (!useStdin) args.push(fullPrompt);
+      return spawnGemini({ args, cwd, stdin: useStdin ? fullPrompt : undefined, timeout: t });
+    },
+    effectiveTimeout,
+  );
 
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: useStdin ? fullPrompt : undefined,
-    timeout,
-  });
-
+  const actualModel = fallbackUsed ? fallbackModel : model;
   const includedFiles = fileContents.filter((f) => !f.skipped).map((f) => f.path);
   const skippedFiles = fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`);
 
   if (result.timedOut) {
     return {
-      response: `Structured query timed out after ${(timeout ?? 60000) / 1000}s.`,
+      response: `Structured query timed out after ${effectiveTimeout / 1000}s.`,
       valid: false,
+      model: actualModel,
+      fallbackUsed: fallbackUsed || undefined,
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: true,
@@ -137,7 +143,8 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
       response: parsed.response,
       valid: false,
       errors: "Could not extract JSON from response",
-      model,
+      model: actualModel,
+      fallbackUsed: fallbackUsed || undefined,
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: false,
@@ -154,7 +161,8 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
       response: extracted.raw,
       valid: false,
       errors,
-      model,
+      model: actualModel,
+      fallbackUsed: fallbackUsed || undefined,
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: false,
@@ -164,7 +172,8 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
   return {
     response: extracted.raw,
     valid: true,
-    model,
+    model: actualModel,
+    fallbackUsed: fallbackUsed || undefined,
     filesIncluded: includedFiles,
     filesSkipped: skippedFiles,
     timedOut: false,

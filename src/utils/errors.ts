@@ -1,4 +1,33 @@
 /**
+ * Non-throwing check: does this result look like a retryable quota/rate-limit error?
+ * Used by the fallback wrapper to decide whether to retry with a different model.
+ * Must be called BEFORE checkErrorPatterns (which throws).
+ */
+export function isRetryableError(exitCode: number | null, stderr: string): boolean {
+  if (exitCode === 0 || !stderr) return false;
+
+  const lower = stderr.toLowerCase();
+
+  // Free-text pattern matching
+  const textPatterns = ["rate limit", "too many requests", "429", "quota", "resource_exhausted"];
+  if (textPatterns.some((p) => lower.includes(p))) return true;
+
+  // Structured JSON matching: try to parse stderr as JSON and check error fields
+  try {
+    const parsed = JSON.parse(stderr) as Record<string, unknown>;
+    const error = (parsed.error ?? parsed) as Record<string, unknown>;
+    const code = String(error.code ?? "").toUpperCase();
+    const status = String(error.status ?? "").toUpperCase();
+    const retryableCodes = ["RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED", "429"];
+    if (retryableCodes.includes(code) || retryableCodes.includes(status)) return true;
+  } catch {
+    // Not JSON, already checked free-text above
+  }
+
+  return false;
+}
+
+/**
  * Check stderr for common Gemini CLI error patterns and throw
  * a user-friendly error. Called by all tool implementations.
  */

@@ -9,6 +9,7 @@ import {
 } from "../utils/files.js";
 import { resolveAndVerify, checkFileSize, verifyDirectory, MAX_FILES } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
+import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
 
 export interface QueryInput {
   prompt: string;
@@ -21,6 +22,7 @@ export interface QueryInput {
 export interface QueryResult {
   response: string;
   model?: string;
+  fallbackUsed?: boolean;
   filesIncluded: string[];
   filesSkipped: string[];
   imagesIncluded: string[];
@@ -91,22 +93,27 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
   const fullPrompt = assemblePrompt(prompt, fileContents);
 
   const useStdin = fullPrompt.length > STDIN_THRESHOLD || textFiles.length > 0;
+  const effectiveTimeout = Math.min(timeout ?? 60_000, HARD_TIMEOUT_CAP);
 
-  const args: string[] = [];
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
-  if (!useStdin) args.push(fullPrompt);
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = [];
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      if (!useStdin) args.push(fullPrompt);
+      return spawnGemini({ args, cwd, stdin: useStdin ? fullPrompt : undefined, timeout: t });
+    },
+    effectiveTimeout,
+  );
 
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: useStdin ? fullPrompt : undefined,
-    timeout,
-  });
+  const actualModel = fallbackUsed ? fallbackModel : model;
 
   if (result.timedOut) {
     return {
-      response: `Query timed out after ${(timeout ?? 60000) / 1000}s. Try a simpler prompt or increase the timeout.`,
+      response: `Query timed out after ${effectiveTimeout / 1000}s. Try a simpler prompt or increase the timeout.`,
+      model: actualModel,
+      fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
       filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
       imagesIncluded: [],
@@ -120,7 +127,8 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
 
   return {
     response: parsed.response,
-    model,
+    model: actualModel,
+    fallbackUsed: fallbackUsed || undefined,
     filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
     filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
     imagesIncluded: [],
@@ -169,23 +177,27 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
     ? `${textPart}\n\n## Image Files\n\n${imagePart}`
     : textPart;
 
-  const args: string[] = [];
-  if (imageNames.length > 0) args.push("--yolo");
-  if (model) args.push("--model", model);
-  args.push("--output-format", "json");
+  const effectiveTimeout = Math.min(timeout ?? IMAGE_QUERY_TIMEOUT, HARD_TIMEOUT_CAP);
 
-  const effectiveTimeout = timeout ?? IMAGE_QUERY_TIMEOUT;
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
+    model,
+    (m, t) => {
+      const args: string[] = [];
+      if (imageNames.length > 0) args.push("--yolo");
+      if (m) args.push("--model", m);
+      args.push("--output-format", "json");
+      return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
+    },
+    effectiveTimeout,
+  );
 
-  const result = await spawnGemini({
-    args,
-    cwd,
-    stdin: fullPrompt,
-    timeout: effectiveTimeout,
-  });
+  const actualModel = fallbackUsed ? fallbackModel : model;
 
   if (result.timedOut) {
     return {
       response: `Query timed out after ${effectiveTimeout / 1000}s. Try a simpler prompt or increase the timeout.`,
+      model: actualModel,
+      fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
       filesSkipped: [
         ...fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
@@ -202,7 +214,8 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
 
   return {
     response: parsed.response,
-    model,
+    model: actualModel,
+    fallbackUsed: fallbackUsed || undefined,
     filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
     filesSkipped: [
       ...fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),

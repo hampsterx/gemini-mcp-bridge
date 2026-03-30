@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { resolveModel, getDefaultModel } from "../../src/utils/model.js";
+import { resolveModel, getDefaultModel, getFallbackModel } from "../../src/utils/model.js";
 
 describe("resolveModel", () => {
   let originalEnv: string | undefined;
@@ -86,5 +86,59 @@ describe("getDefaultModel", () => {
   it("returns undefined for empty/whitespace", () => {
     process.env["GEMINI_DEFAULT_MODEL"] = "  ";
     expect(getDefaultModel()).toBeUndefined();
+  });
+});
+
+describe("getFallbackModel", () => {
+  let savedFallback: string | undefined;
+
+  beforeEach(() => {
+    savedFallback = process.env["GEMINI_FALLBACK_MODEL"];
+    delete process.env["GEMINI_FALLBACK_MODEL"];
+  });
+
+  afterEach(() => {
+    if (savedFallback !== undefined) {
+      process.env["GEMINI_FALLBACK_MODEL"] = savedFallback;
+    } else {
+      delete process.env["GEMINI_FALLBACK_MODEL"];
+    }
+  });
+
+  it("defaults to gemini-2.5-flash when unset", () => {
+    expect(getFallbackModel()).toBe("gemini-2.5-flash");
+  });
+
+  it("returns custom model when set", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "gemini-2.0-flash";
+    expect(getFallbackModel()).toBe("gemini-2.0-flash");
+  });
+
+  it("returns undefined when set to 'none'", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "none";
+    expect(getFallbackModel()).toBeUndefined();
+  });
+
+  it("is case-insensitive for 'none'", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "None";
+    expect(getFallbackModel()).toBeUndefined();
+
+    process.env["GEMINI_FALLBACK_MODEL"] = "NONE";
+    expect(getFallbackModel()).toBeUndefined();
+  });
+
+  it("trims whitespace", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "  gemini-2.0-flash  ";
+    expect(getFallbackModel()).toBe("gemini-2.0-flash");
+  });
+
+  it("treats empty string as unset (defaults to gemini-2.5-flash)", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "";
+    expect(getFallbackModel()).toBe("gemini-2.5-flash");
+  });
+
+  it("treats whitespace-only as unset", () => {
+    process.env["GEMINI_FALLBACK_MODEL"] = "   ";
+    expect(getFallbackModel()).toBe("gemini-2.5-flash");
   });
 });

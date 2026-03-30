@@ -55,7 +55,9 @@ server.tool(
       if (result.timedOut) {
         meta.push("(timed out)");
       }
-      if (result.model) {
+      if (result.fallbackUsed) {
+        meta.push(`Note: ${result.model ?? "primary model"} used after quota exhaustion on original model`);
+      } else if (result.model) {
         meta.push(`Model: ${result.model}`);
       }
 
@@ -113,6 +115,7 @@ server.tool(
         `Mode: ${result.mode}`,
       ];
       if (result.base) meta.push(`Base: ${result.base}`);
+      if (result.fallbackUsed) meta.push("Note: fallback model used after quota exhaustion on original model");
       if (result.timedOut) meta.push("(timed out)");
 
       return {
@@ -152,7 +155,11 @@ server.tool(
       const result = await executeSearch(input);
       const meta: string[] = [];
       if (result.timedOut) meta.push("(timed out)");
-      if (result.model) meta.push(`Model: ${result.model}`);
+      if (result.fallbackUsed) {
+        meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
+      } else if (result.model) {
+        meta.push(`Model: ${result.model}`);
+      }
 
       const text = meta.length > 0
         ? `${result.response}\n\n---\n${meta.join("\n")}`
@@ -204,13 +211,19 @@ server.tool(
         meta.push(`Files: ${result.filesIncluded.join(", ")}`);
       }
       if (result.timedOut) meta.push("(timed out)");
-      if (result.model) meta.push(`Model: ${result.model}`);
+      if (result.fallbackUsed) {
+        meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
+      } else if (result.model) {
+        meta.push(`Model: ${result.model}`);
+      }
+
+      const metaSuffix = meta.length > 0 ? `\n\n---\n${meta.join("\n")}` : "";
 
       return {
         content: [{
           type: "text",
           text: result.valid
-            ? result.response
+            ? `${result.response}${metaSuffix}`
             : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
         }],
         isError: !result.valid,
@@ -239,6 +252,7 @@ server.tool(
         `CLI version: ${result.version ?? "unknown"}`,
         `Auth status: ${result.authStatus}`,
         `Default model: ${result.defaultModel ?? "(CLI default)"}`,
+        `Fallback model: ${result.fallbackModel ?? "disabled"}`,
         `Server version: ${result.serverVersion}`,
         `Node version: ${result.nodeVersion}`,
         `Max concurrent: ${result.maxConcurrent}`,
