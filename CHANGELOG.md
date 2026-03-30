@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-03-30
+
+### Added
+- **Response length awareness**: Optional `maxResponseLength` parameter (in words) on query, search, and review tools. Appends a soft length instruction to the prompt.
+- Conciseness guidance in review and search prompt templates to reduce verbose output by default.
+- `buildLengthLimit()` and `appendLengthLimit()` helpers in `src/utils/prompts.ts`.
+- `GEMINI_DEFAULT_MODEL` env var support for default model selection.
+- Auto-retry with fallback model on quota exhaustion (`GEMINI_FALLBACK_MODEL` env var).
+- 10 new tests for response length controls.
+
+### Changed
+- `maxResponseLength` zod schemas enforce `.int().positive()`.
+
+## [0.2.2] - 2026-03-25
+
 ### Added
 - **`search` tool**: Google Search grounded queries. Spawns CLI in agentic mode with `google_web_search`, synthesizes answers with source URLs. Default 120s timeout.
+- **`structured` tool**: JSON output conforming to a provided JSON Schema, with validation.
 - **Image support in `query`**: Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode so the CLI reads them natively. Text files still inlined as before. Mixed text+image queries supported. 5MB size limit for images (vs 1MB for text).
 - `src/utils/errors.ts`: Shared `checkErrorPatterns()` for consistent auth/rate-limit error handling across all tools.
-- `src/utils/prompts.ts`: Shared `loadPrompt()` extracted from review tool, used by both review and search.
 - `isImageFile()` and `IMAGE_EXTENSIONS` helpers in `src/utils/files.ts`.
 - 23 new tests (query tool: 11, search tool: 8, isImageFile: 4).
 
