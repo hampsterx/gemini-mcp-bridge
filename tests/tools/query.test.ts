@@ -185,6 +185,49 @@ describe("executeQuery", () => {
     expect(result.imagesIncluded[0]).not.toContain("/");
   });
 
+  it("appends length limit when maxResponseLength is set", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("Short answer"));
+
+    await executeQuery({
+      prompt: "Explain this",
+      maxResponseLength: 300,
+      workingDirectory: tmpDir,
+    });
+
+    // Short prompts may go as positional arg or stdin
+    const call = mockSpawn.mock.calls[0][0];
+    const content = call.stdin ?? call.args.join(" ");
+    expect(content).toContain("Keep your response under 300 words");
+  });
+
+  it("omits length limit when maxResponseLength is not set", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("Hello!"));
+
+    await executeQuery({
+      prompt: "Say hello",
+      workingDirectory: tmpDir,
+    });
+
+    const call = mockSpawn.mock.calls[0][0];
+    const content = call.stdin ?? call.args.join(" ");
+    expect(content).not.toContain("Keep your response under");
+  });
+
+  it("appends length limit to image queries", async () => {
+    await writeFile(path.join(tmpDir, "photo.png"), "fake png data");
+    mockSpawn.mockResolvedValue(jsonResponse("Short image desc"));
+
+    await executeQuery({
+      prompt: "Describe this",
+      files: ["photo.png"],
+      maxResponseLength: 200,
+      workingDirectory: tmpDir,
+    });
+
+    const stdin = mockSpawn.mock.calls[0][0].stdin;
+    expect(stdin).toContain("Keep your response under 200 words");
+  });
+
   it("rejects more than 20 total files", async () => {
     const files = Array.from({ length: 21 }, (_, i) => `file${i}.txt`);
 

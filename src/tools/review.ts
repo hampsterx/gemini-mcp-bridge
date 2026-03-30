@@ -1,7 +1,7 @@
 import { spawnGemini } from "../utils/spawn.js";
 import { parseGeminiOutput } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
-import { loadPrompt } from "../utils/prompts.js";
+import { loadPrompt, buildLengthLimit } from "../utils/prompts.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
 import { verifyDirectory } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
@@ -15,6 +15,7 @@ export interface ReviewInput {
   model?: string;
   workingDirectory?: string;
   timeout?: number;
+  maxResponseLength?: number;
 }
 
 export interface ReviewResult {
@@ -36,20 +37,22 @@ const QUICK_TIMEOUT = 120_000;
  * Agentic review prompt. The CLI has full tool access (shell, file read,
  * grep, etc.) and will run git commands, read files, and explore the repo.
  */
-export function buildAgenticPrompt(diffSpec: string, focus?: string): string {
+export function buildAgenticPrompt(diffSpec: string, focus?: string, maxResponseLength?: number): string {
   return loadPrompt("review-agentic.md", {
     DIFF_SPEC: diffSpec,
     FOCUS_SECTION: focus ? `## Focus Area\n\nPay special attention to: ${focus}` : "",
+    LENGTH_LIMIT: buildLengthLimit(maxResponseLength),
   });
 }
 
 /**
  * Quick review prompt. Pre-computed diff, no repo exploration.
  */
-export function buildQuickPrompt(diff: string, focus?: string): string {
+export function buildQuickPrompt(diff: string, focus?: string, maxResponseLength?: number): string {
   return loadPrompt("review-quick.md", {
     DIFF: diff,
     FOCUS_SECTION: focus ? `Pay special attention to: ${focus}` : "",
+    LENGTH_LIMIT: buildLengthLimit(maxResponseLength),
   });
 }
 
@@ -65,7 +68,7 @@ export function buildQuickPrompt(diff: string, focus?: string): string {
  * Faster, single-pass, no repo exploration.
  */
 export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
-  const { uncommitted = true, base, focus, quick = false } = input;
+  const { uncommitted = true, base, focus, quick = false, maxResponseLength } = input;
   const model = resolveModel(input.model);
   const defaultTimeout = quick ? QUICK_TIMEOUT : AGENTIC_TIMEOUT;
   const timeout = Math.min(input.timeout ?? defaultTimeout, HARD_TIMEOUT_CAP);
@@ -77,10 +80,10 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
   const cwd = getGitRoot(requestedDir);
 
   if (quick) {
-    return executeQuickReview({ cwd, uncommitted, base, focus, model, timeout });
+    return executeQuickReview({ cwd, uncommitted, base, focus, model, timeout, maxResponseLength });
   }
 
-  return executeAgenticReview({ cwd, uncommitted, base, focus, model, timeout });
+  return executeAgenticReview({ cwd, uncommitted, base, focus, model, timeout, maxResponseLength });
 }
 
 interface InternalReviewInput {
@@ -90,6 +93,7 @@ interface InternalReviewInput {
   focus?: string;
   model?: string;
   timeout: number;
+  maxResponseLength?: number;
 }
 
 /**
@@ -103,7 +107,7 @@ interface InternalReviewInput {
  * --yolo to --policy + --approval-mode auto_edit for tighter control.
  */
 async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewResult> {
-  const { cwd, uncommitted, base, focus, model, timeout } = input;
+  const { cwd, uncommitted, base, focus, model, timeout, maxResponseLength } = input;
 
   // Build the git diff command for the prompt (CLI will run it)
   let diffSpec: string;
@@ -149,7 +153,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     throw e;
   }
 
-  const prompt = buildAgenticPrompt(diffSpec, focus);
+  const prompt = buildAgenticPrompt(diffSpec, focus, maxResponseLength);
 
   const { result, fallbackUsed } = await withModelFallback(
     model,
@@ -191,7 +195,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
  * Quick review: pre-computed diff, single-pass, no repo exploration.
  */
 async function executeQuickReview(input: InternalReviewInput): Promise<ReviewResult> {
-  const { cwd, uncommitted, base, focus, model, timeout } = input;
+  const { cwd, uncommitted, base, focus, model, timeout, maxResponseLength } = input;
 
   let diff: string;
   let diffSource: ReviewResult["diffSource"];
@@ -219,7 +223,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     throw e;
   }
 
-  const fullPrompt = buildQuickPrompt(diff, focus);
+  const fullPrompt = buildQuickPrompt(diff, focus, maxResponseLength);
 
   const { result, fallbackUsed } = await withModelFallback(
     model,

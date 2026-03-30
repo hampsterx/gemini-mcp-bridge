@@ -38,6 +38,12 @@ server.tool(
       .number()
       .optional()
       .describe("Timeout in milliseconds (default: 60000 for text, 120000 for images, max: 600000)"),
+    maxResponseLength: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
   },
   async (input) => {
     try {
@@ -106,6 +112,12 @@ server.tool(
       .number()
       .optional()
       .describe("Timeout in milliseconds (default: 300000 agentic / 120000 quick, max: 600000)"),
+    maxResponseLength: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
   },
   async (input) => {
     try {
@@ -149,6 +161,12 @@ server.tool(
       .number()
       .optional()
       .describe("Timeout in milliseconds (default: 120000, max: 600000)"),
+    maxResponseLength: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
   },
   async (input) => {
     try {
