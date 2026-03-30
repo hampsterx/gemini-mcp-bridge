@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadPrompt } from "../../src/utils/prompts.js";
+import { loadPrompt, buildLengthLimit } from "../../src/utils/prompts.js";
 import { buildAgenticPrompt, buildQuickPrompt } from "../../src/tools/review.js";
 
 describe("loadPrompt", () => {
@@ -53,6 +53,16 @@ describe("buildAgenticPrompt", () => {
     expect(result).not.toContain("Focus Area");
     expect(result).not.toContain("Pay special attention to");
   });
+
+  it("includes length limit when set", () => {
+    const result = buildAgenticPrompt("git diff HEAD", undefined, 1000);
+    expect(result).toContain("Keep your response under 1000 words");
+  });
+
+  it("omits length limit when not set", () => {
+    const result = buildAgenticPrompt("git diff HEAD");
+    expect(result).not.toContain("Keep your response under");
+  });
 });
 
 describe("buildQuickPrompt", () => {
@@ -70,5 +80,33 @@ describe("buildQuickPrompt", () => {
   it("omits focus when not provided", () => {
     const result = buildQuickPrompt("some diff");
     expect(result).not.toContain("Pay special attention to");
+  });
+
+  it("includes length limit when maxResponseLength is set", () => {
+    const result = buildQuickPrompt("some diff", undefined, 500);
+    expect(result).toContain("Keep your response under 500 words");
+  });
+
+  it("omits length limit when maxResponseLength is not set", () => {
+    const result = buildQuickPrompt("some diff");
+    expect(result).not.toContain("Keep your response under");
+  });
+});
+
+describe("buildLengthLimit", () => {
+  it("returns instruction for positive word count", () => {
+    expect(buildLengthLimit(500)).toBe("Keep your response under 500 words.");
+  });
+
+  it("returns empty string when undefined", () => {
+    expect(buildLengthLimit(undefined)).toBe("");
+  });
+
+  it("returns empty string when zero", () => {
+    expect(buildLengthLimit(0)).toBe("");
+  });
+
+  it("returns empty string when negative", () => {
+    expect(buildLengthLimit(-10)).toBe("");
   });
 });

@@ -1,7 +1,7 @@
 import { spawnGemini } from "../utils/spawn.js";
 import { parseGeminiOutput } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
-import { loadPrompt } from "../utils/prompts.js";
+import { loadPrompt, buildLengthLimit } from "../utils/prompts.js";
 import { verifyDirectory } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
 import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
@@ -11,6 +11,7 @@ export interface SearchInput {
   model?: string;
   workingDirectory?: string;
   timeout?: number;
+  maxResponseLength?: number;
 }
 
 export interface SearchResult {
@@ -31,7 +32,7 @@ const SEARCH_TIMEOUT = 120_000;
  * web and synthesize an answer with source URLs.
  */
 export async function executeSearch(input: SearchInput): Promise<SearchResult> {
-  const { query } = input;
+  const { query, maxResponseLength } = input;
   const model = resolveModel(input.model);
   const timeout = Math.min(input.timeout ?? SEARCH_TIMEOUT, HARD_TIMEOUT_CAP);
 
@@ -39,7 +40,10 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
     ? await verifyDirectory(input.workingDirectory)
     : process.cwd();
 
-  const prompt = loadPrompt("search.md", { QUERY: query });
+  const prompt = loadPrompt("search.md", {
+    QUERY: query,
+    LENGTH_LIMIT: buildLengthLimit(maxResponseLength) || "Provide a focused synthesis. Aim for 500-1500 words unless the topic clearly warrants more.",
+  });
 
   const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,

@@ -17,3 +17,23 @@ export function loadPrompt(filename: string, vars: Record<string, string>): stri
   }
   return result;
 }
+
+/**
+ * Build a length limit instruction string from a word count.
+ * Returns empty string when no limit is set, suitable for use
+ * as a {{LENGTH_LIMIT}} template variable.
+ */
+export function buildLengthLimit(maxWords?: number): string {
+  if (!maxWords || maxWords <= 0) return "";
+  return `Keep your response under ${maxWords} words.`;
+}
+
+/**
+ * Append a length limit instruction to a prompt string.
+ * No-op when maxWords is not set. Use this for tools that don't
+ * have a prompt template with a {{LENGTH_LIMIT}} placeholder.
+ */
+export function appendLengthLimit(prompt: string, maxWords?: number): string {
+  const limit = buildLengthLimit(maxWords);
+  return limit ? `${prompt}\n\n${limit}` : prompt;
+}

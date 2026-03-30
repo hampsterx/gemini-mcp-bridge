@@ -30,4 +30,8 @@ Focus on:
 
 {{FOCUS_SECTION}}
 
-If the code looks good, say so briefly. Don't invent issues.
+## Response Length
+
+Keep the review concise. Focus on significant findings, not line-by-line commentary. Group related issues together. If the code looks good, say so briefly. Don't invent issues.
+
+{{LENGTH_LIMIT}}

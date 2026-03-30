@@ -148,6 +148,31 @@ describe("executeSearch", () => {
     expect(args).not.toContain("--model");
   });
 
+  it("includes length limit in prompt when maxResponseLength is set", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("brief answer"));
+
+    await executeSearch({
+      query: "test query",
+      maxResponseLength: 500,
+      workingDirectory: tmpDir,
+    });
+
+    const stdin = mockSpawn.mock.calls[0][0].stdin!;
+    expect(stdin).toContain("Keep your response under 500 words");
+  });
+
+  it("omits length limit when maxResponseLength is not set", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("answer"));
+
+    await executeSearch({
+      query: "test query",
+      workingDirectory: tmpDir,
+    });
+
+    const stdin = mockSpawn.mock.calls[0][0].stdin!;
+    expect(stdin).not.toContain("Keep your response under");
+  });
+
   it("handles timeout gracefully", async () => {
     mockSpawn.mockResolvedValue({
       stdout: "",

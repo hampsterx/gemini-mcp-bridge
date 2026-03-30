@@ -7,6 +7,7 @@ import {
   isImageFile,
   MAX_IMAGE_FILE_SIZE,
 } from "../utils/files.js";
+import { appendLengthLimit } from "../utils/prompts.js";
 import { resolveAndVerify, checkFileSize, verifyDirectory, MAX_FILES } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
 import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
@@ -17,6 +18,7 @@ export interface QueryInput {
   model?: string;
   workingDirectory?: string;
   timeout?: number;
+  maxResponseLength?: number;
 }
 
 export interface QueryResult {
@@ -47,7 +49,7 @@ const IMAGE_QUERY_TIMEOUT = 120_000;
  * in the prompt as before.
  */
 export async function executeQuery(input: QueryInput): Promise<QueryResult> {
-  const { prompt, files = [], timeout } = input;
+  const { prompt, files = [], timeout, maxResponseLength } = input;
   const model = resolveModel(input.model);
 
   // Resolve working directory
@@ -64,10 +66,10 @@ export async function executeQuery(input: QueryInput): Promise<QueryResult> {
   const imageFiles = files.filter((f) => isImageFile(f));
 
   if (imageFiles.length > 0) {
-    return executeImageQuery({ prompt, textFiles, imageFiles, model, timeout, cwd });
+    return executeImageQuery({ prompt, textFiles, imageFiles, model, timeout, cwd, maxResponseLength });
   }
 
-  return executeTextQuery({ prompt, textFiles, model, timeout, cwd });
+  return executeTextQuery({ prompt, textFiles, model, timeout, cwd, maxResponseLength });
 }
 
 interface TextQueryInput {
@@ -76,6 +78,7 @@ interface TextQueryInput {
   model?: string;
   timeout?: number;
   cwd: string;
+  maxResponseLength?: number;
 }
 
 interface ImageQueryInput extends TextQueryInput {
@@ -87,10 +90,10 @@ interface ImageQueryInput extends TextQueryInput {
  * This is the original behaviour, unchanged.
  */
 async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
-  const { prompt, textFiles, model, timeout, cwd } = input;
+  const { prompt, textFiles, model, timeout, cwd, maxResponseLength } = input;
 
   const fileContents = textFiles.length > 0 ? await readFiles(textFiles, cwd) : [];
-  const fullPrompt = assemblePrompt(prompt, fileContents);
+  const fullPrompt = appendLengthLimit(assemblePrompt(prompt, fileContents), maxResponseLength);
 
   const useStdin = fullPrompt.length > STDIN_THRESHOLD || textFiles.length > 0;
   const effectiveTimeout = Math.min(timeout ?? 60_000, HARD_TIMEOUT_CAP);
@@ -142,7 +145,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
  * absolute path with instructions for the CLI to read them.
  */
 async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
-  const { prompt, textFiles, imageFiles, model, timeout, cwd } = input;
+  const { prompt, textFiles, imageFiles, model, timeout, cwd, maxResponseLength } = input;
 
   // Resolve and verify image paths (security + size check) in parallel
   const imageResults = await Promise.all(
@@ -173,9 +176,10 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
   const imagePart = imageNames
     .map((p) => `Read and analyze the image at: ${p}`)
     .join("\n");
-  const fullPrompt = imageNames.length > 0
-    ? `${textPart}\n\n## Image Files\n\n${imagePart}`
-    : textPart;
+  const fullPrompt = appendLengthLimit(
+    imageNames.length > 0 ? `${textPart}\n\n## Image Files\n\n${imagePart}` : textPart,
+    maxResponseLength,
+  );
 
   const effectiveTimeout = Math.min(timeout ?? IMAGE_QUERY_TIMEOUT, HARD_TIMEOUT_CAP);
 
