@@ -54,6 +54,28 @@ npm run lint         # ESLint
 npm run typecheck    # tsc --noEmit
 ```
 
+### Testing changes without restarting MCP client
+
+MCP servers are long-lived processes. Claude Code (and other MCP clients) cannot hot-reload them mid-session. After rebuilding, use the smoke test to call compiled tool functions directly, bypassing the running server:
+
+```bash
+npm run smoke                          # query tool, cwd
+npm run smoke -- query /path/to/repo   # query with specific workingDirectory
+npm run smoke -- review ~/NUI/cream    # review tool against another repo
+npm run smoke -- search                # search tool
+npm run smoke -- ping                  # health check
+```
+
+From Claude Code, you can also import and call tool functions inline:
+
+```bash
+node --input-type=module -e "
+import { executeQuery } from './dist/tools/query.js';
+const r = await executeQuery({ prompt: 'pong', workingDirectory: '/tmp', timeout: 15000 });
+console.log(r.resolvedCwd, r.response);
+"
+```
+
 ## Key Design Decisions
 
 ### Subprocess Environment (Security Critical)
