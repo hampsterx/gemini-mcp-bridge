@@ -43,6 +43,8 @@ export interface StructuredResult {
   filesIncluded: string[];
   filesSkipped: string[];
   timedOut: boolean;
+  /** The directory the CLI actually ran in. */
+  resolvedCwd: string;
 }
 
 /**
@@ -129,6 +131,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -148,6 +151,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: false,
+      resolvedCwd: cwd,
     };
   }
 
@@ -166,6 +170,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
       filesIncluded: includedFiles,
       filesSkipped: skippedFiles,
       timedOut: false,
+      resolvedCwd: cwd,
     };
   }
 
@@ -177,5 +182,6 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
     filesIncluded: includedFiles,
     filesSkipped: skippedFiles,
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }

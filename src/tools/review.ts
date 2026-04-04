@@ -25,6 +25,8 @@ export interface ReviewResult {
   mode: "agentic" | "quick";
   fallbackUsed?: boolean;
   timedOut: boolean;
+  /** The directory the CLI actually ran in (after git root resolution). */
+  resolvedCwd: string;
 }
 
 /** Default timeout for agentic review (CLI explores the repo with all tools). */
@@ -138,6 +140,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
         base,
         mode: "agentic",
         timedOut: false,
+        resolvedCwd: cwd,
       };
     }
   } catch (e) {
@@ -148,6 +151,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
         base,
         mode: "agentic",
         timedOut: false,
+        resolvedCwd: cwd,
       };
     }
     throw e;
@@ -174,6 +178,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
       mode: "agentic",
       fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -188,6 +193,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     mode: "agentic",
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }
 
@@ -218,6 +224,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
         base,
         mode: "quick",
         timedOut: false,
+        resolvedCwd: cwd,
       };
     }
     throw e;
@@ -244,6 +251,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
       mode: "quick",
       fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -258,5 +266,6 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     mode: "quick",
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }
