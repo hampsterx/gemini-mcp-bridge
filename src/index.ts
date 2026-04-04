@@ -48,7 +48,7 @@ server.tool(
   async (input) => {
     try {
       const result = await executeQuery(input);
-      const meta: string[] = [];
+      const meta: string[] = [`Working directory: ${result.resolvedCwd}`];
       if (result.filesIncluded.length > 0) {
         meta.push(`Files included: ${result.filesIncluded.join(", ")}`);
       }
@@ -123,6 +123,7 @@ server.tool(
     try {
       const result = await executeReview(input);
       const meta: string[] = [
+        `Working directory: ${result.resolvedCwd}`,
         `Diff source: ${result.diffSource}`,
         `Mode: ${result.mode}`,
       ];
@@ -171,7 +172,7 @@ server.tool(
   async (input) => {
     try {
       const result = await executeSearch(input);
-      const meta: string[] = [];
+      const meta: string[] = [`Working directory: ${result.resolvedCwd}`];
       if (result.timedOut) meta.push("(timed out)");
       if (result.fallbackUsed) {
         meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
@@ -223,6 +224,8 @@ server.tool(
   async (input) => {
     try {
       const result = await executeStructured(input);
+      // Structured tool returns machine-parseable JSON, so only append
+      // metadata on errors/invalid responses to preserve the JSON contract.
       const meta: string[] = [];
       if (result.errors) meta.push(`Errors: ${result.errors}`);
       if (result.filesIncluded.length > 0) {
@@ -234,14 +237,13 @@ server.tool(
       } else if (result.model) {
         meta.push(`Model: ${result.model}`);
       }
-
-      const metaSuffix = meta.length > 0 ? `\n\n---\n${meta.join("\n")}` : "";
+      meta.push(`Working directory: ${result.resolvedCwd}`);
 
       return {
         content: [{
           type: "text",
           text: result.valid
-            ? `${result.response}${metaSuffix}`
+            ? result.response
             : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
         }],
         isError: !result.valid,

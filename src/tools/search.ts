@@ -19,6 +19,8 @@ export interface SearchResult {
   model?: string;
   fallbackUsed?: boolean;
   timedOut: boolean;
+  /** The directory the CLI actually ran in. */
+  resolvedCwd: string;
 }
 
 /** Default timeout for search queries (search + synthesis). */
@@ -61,6 +63,7 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
       response: `Search timed out after ${timeout / 1000}s. Try a more specific query or increase the timeout.`,
       model: fallbackUsed ? fallbackModel : model,
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -73,5 +76,6 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
     model: fallbackUsed ? fallbackModel : model,
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }

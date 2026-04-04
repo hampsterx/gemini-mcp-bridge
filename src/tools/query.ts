@@ -29,6 +29,8 @@ export interface QueryResult {
   filesSkipped: string[];
   imagesIncluded: string[];
   timedOut: boolean;
+  /** The directory the CLI actually ran in. */
+  resolvedCwd: string;
 }
 
 /**
@@ -121,6 +123,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
       filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
       imagesIncluded: [],
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -136,6 +139,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
     filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
     imagesIncluded: [],
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }
 
@@ -209,6 +213,7 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
       ],
       imagesIncluded: imageNames,
       timedOut: true,
+      resolvedCwd: cwd,
     };
   }
 
@@ -227,6 +232,7 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
     ],
     imagesIncluded: imageNames,
     timedOut: false,
+    resolvedCwd: cwd,
   };
 }
 
