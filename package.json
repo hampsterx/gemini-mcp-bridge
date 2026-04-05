@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "GEMINI_INTEGRATION=1 vitest run tests/integration/",
+    "smoke": "npm run build && node scripts/smoke-test.mjs",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
