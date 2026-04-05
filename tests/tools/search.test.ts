@@ -54,7 +54,7 @@ describe("executeSearch", () => {
     const call = mockSpawn.mock.calls[0][0];
     expect(call.args).toContain("--yolo");
     expect(call.args).toContain("--output-format");
-    expect(call.args).toContain("json");
+    expect(call.args).toContain("stream-json");
   });
 
   it("passes query via search prompt template in stdin", async () => {
@@ -187,7 +187,7 @@ describe("executeSearch", () => {
     });
 
     expect(result.timedOut).toBe(true);
-    expect(result.response).toContain("timed out");
+    expect(result.response).toContain("Timed out");
   });
 
   it("throws on auth error", async () => {

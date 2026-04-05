@@ -7,10 +7,14 @@ export interface GeminiJsonOutput {
   raw?: unknown;
 }
 
+/** Output format used for all spawn calls. */
+export const OUTPUT_FORMAT = "stream-json";
+
 /**
- * Parse Gemini CLI output, handling JSON and plain text modes.
+ * Parse Gemini CLI output for legacy --output-format json mode.
  *
- * With --output-format json, Gemini CLI writes JSON to stderr (not stdout).
+ * This is a fallback for CLI versions that do not support stream-json.
+ * With --output-format json, the CLI writes JSON to stderr (not stdout).
  * We check both streams for JSON content.
  *
  * Strategy:
@@ -167,4 +171,81 @@ export function extractJson(text: string): { json: unknown; raw: string } | null
   }
 
   return null;
+}
+
+/**
+ * Parse stream-json (NDJSON) output from the Gemini CLI.
+ *
+ * The `--output-format stream-json` mode writes one JSON object per line to stdout:
+ *   {"type":"init", ...}
+ *   {"type":"message","role":"user","content":"..."}
+ *   {"type":"message","role":"assistant","content":"chunk...","delta":true}
+ *   {"type":"result","response":"...full assembled text","stats":{...}}
+ *
+ * On timeout, the "result" line may be missing. We concatenate all assistant
+ * message content to produce whatever partial response was generated.
+ *
+ * Falls back to `parseGeminiOutput()` if no stream-json lines are found
+ * (handles CLI versions that don't support stream-json).
+ */
+export function parseStreamJson(stdout: string, stderr: string): GeminiJsonOutput {
+  const cleaned = stripAnsi(stdout).trim();
+  if (!cleaned) {
+    return parseGeminiOutput(stdout, stderr);
+  }
+
+  const lines = cleaned.split("\n");
+  const chunks: string[] = [];
+  let foundStreamLines = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (obj["type"]) foundStreamLines = true;
+
+      // Collect assistant message content
+      if (obj["type"] === "message" && obj["role"] === "assistant" && typeof obj["content"] === "string") {
+        chunks.push(obj["content"] as string);
+      }
+
+      // If we got a full result line with a response field, prefer that
+      if (obj["type"] === "result" && typeof obj["response"] === "string") {
+        return { response: obj["response"] as string, raw: obj };
+      }
+    } catch {
+      // Not JSON, skip (could be progress output from --yolo mode)
+    }
+  }
+
+  if (chunks.length > 0) {
+    return { response: chunks.join("") };
+  }
+
+  // No stream-json lines found, fall back to standard parsing
+  if (!foundStreamLines) {
+    return parseGeminiOutput(stdout, stderr);
+  }
+
+  // Had stream-json lines but no assistant content — try stderr as fallback
+  return parseGeminiOutput(stdout, stderr);
+}
+
+/**
+ * Try to extract partial response from stream-json stdout on timeout.
+ * Returns the partial content prefixed with a timeout note, or a
+ * cold-start hint message if no content was captured.
+ */
+export function tryParsePartial(stdout: string, stderr: string, timeoutMs: number): string {
+  const timeoutSec = Math.round(timeoutMs / 1000);
+  try {
+    const parsed = parseStreamJson(stdout, stderr);
+    if (parsed.response.trim()) {
+      return `[Partial response, timed out after ${timeoutSec}s]\n\n${parsed.response}`;
+    }
+  } catch {
+    // No parseable content
+  }
+  return `Timed out after ${timeoutSec}s with no response. The gemini CLI may still be starting up (~15-20s cold start). Try increasing the timeout.`;
 }

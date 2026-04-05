@@ -1,5 +1,5 @@
 import { spawnGemini } from "../utils/spawn.js";
-import { parseGeminiOutput } from "../utils/parse.js";
+import { parseStreamJson, tryParsePartial, OUTPUT_FORMAT } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import {
   readFiles,
@@ -105,7 +105,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
     (m, t) => {
       const args: string[] = [];
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       if (!useStdin) args.push(fullPrompt);
       return spawnGemini({ args, cwd, stdin: useStdin ? fullPrompt : undefined, timeout: t });
     },
@@ -115,8 +115,9 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
   const actualModel = fallbackUsed ? fallbackModel : model;
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: `Query timed out after ${effectiveTimeout / 1000}s. Try a simpler prompt or increase the timeout.`,
+      response: partial,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
@@ -129,7 +130,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
     response: parsed.response,
@@ -193,7 +194,7 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
       const args: string[] = [];
       if (imageNames.length > 0) args.push("--yolo");
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
     },
     effectiveTimeout,
@@ -202,8 +203,9 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
   const actualModel = fallbackUsed ? fallbackModel : model;
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: `Query timed out after ${effectiveTimeout / 1000}s. Try a simpler prompt or increase the timeout.`,
+      response: partial,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
@@ -219,7 +221,7 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
     response: parsed.response,

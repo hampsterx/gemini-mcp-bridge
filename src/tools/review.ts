@@ -1,5 +1,5 @@
 import { spawnGemini } from "../utils/spawn.js";
-import { parseGeminiOutput } from "../utils/parse.js";
+import { parseStreamJson, tryParsePartial, OUTPUT_FORMAT } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt, buildLengthLimit } from "../utils/prompts.js";
 import { getGitRoot, getUncommittedDiff, getBranchDiff } from "../utils/git.js";
@@ -164,15 +164,16 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     (m, t) => {
       const args: string[] = ["--yolo"];
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
     },
     timeout,
   );
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: `Review timed out after ${timeout / 1000}s. Try with quick: true for a faster, diff-only review.`,
+      response: partial,
       diffSource,
       base,
       mode: "agentic",
@@ -184,7 +185,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
     response: parsed.response,
@@ -237,15 +238,16 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     (m, t) => {
       const args: string[] = [];
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
     },
     timeout,
   );
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: `Review timed out after ${timeout / 1000}s. The diff may be too large. Try reviewing a smaller scope.`,
+      response: partial,
       diffSource,
       base,
       mode: "quick",
@@ -257,7 +259,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
     response: parsed.response,
