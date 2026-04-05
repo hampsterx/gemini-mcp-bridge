@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGeminiOutput, extractJson } from "../../src/utils/parse.js";
+import { parseGeminiOutput, extractJson, parseStreamJson, tryParsePartial } from "../../src/utils/parse.js";
 
 describe("parseGeminiOutput", () => {
   it("parses JSON with response field from stdout", () => {
@@ -180,5 +180,60 @@ describe("extractJson", () => {
     const result = extractJson(text);
     expect(result).not.toBeNull();
     expect(result!.raw).toBe('{"key": "value"}');
+  });
+});
+
+describe("parseStreamJson", () => {
+  it("returns eventCount from stream-json lines", () => {
+    const stdout = [
+      '{"type":"init","session_id":"abc"}',
+      '{"type":"message","role":"user","content":"hi"}',
+      '{"type":"message","role":"assistant","content":"Hello "}',
+      '{"type":"message","role":"assistant","content":"world"}',
+      '{"type":"result","response":"Hello world","stats":{}}',
+    ].join("\n");
+
+    const result = parseStreamJson(stdout, "");
+    expect(result.response).toBe("Hello world");
+    expect(result.eventCount).toBe(5);
+  });
+
+  it("returns eventCount when result line is missing (partial)", () => {
+    const stdout = [
+      '{"type":"init","session_id":"abc"}',
+      '{"type":"message","role":"assistant","content":"partial "}',
+      '{"type":"message","role":"assistant","content":"response"}',
+    ].join("\n");
+
+    const result = parseStreamJson(stdout, "");
+    expect(result.response).toBe("partial response");
+    expect(result.eventCount).toBe(3);
+  });
+
+  it("returns undefined eventCount for legacy JSON fallback", () => {
+    const stderr = JSON.stringify({ response: "legacy output" });
+    const result = parseStreamJson("", stderr);
+    expect(result.response).toBe("legacy output");
+    expect(result.eventCount).toBeUndefined();
+  });
+});
+
+describe("tryParsePartial", () => {
+  it("returns structured result with eventCount", () => {
+    const stdout = [
+      '{"type":"init","session_id":"abc"}',
+      '{"type":"message","role":"assistant","content":"partial content"}',
+    ].join("\n");
+
+    const result = tryParsePartial(stdout, "", 30_000);
+    expect(result.text).toContain("[Partial response, timed out after 30s]");
+    expect(result.text).toContain("partial content");
+    expect(result.eventCount).toBe(2);
+  });
+
+  it("returns zero eventCount when no content captured", () => {
+    const result = tryParsePartial("", "", 25_000);
+    expect(result.text).toContain("Timed out after 25s with no response");
+    expect(result.eventCount).toBe(0);
   });
 });

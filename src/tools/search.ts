@@ -61,7 +61,7 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: partial,
+      response: partial.text,
       model: fallbackUsed ? fallbackModel : model,
       timedOut: true,
       resolvedCwd: cwd,

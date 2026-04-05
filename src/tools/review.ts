@@ -23,6 +23,8 @@ export interface ReviewResult {
   diffSource: "uncommitted" | "branch";
   base?: string;
   mode: "agentic" | "quick";
+  /** Actual model used (reflects fallback if quota exhausted). */
+  model?: string;
   fallbackUsed?: boolean;
   timedOut: boolean;
   /** The directory the CLI actually ran in (after git root resolution). */
@@ -159,7 +161,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
 
   const prompt = buildAgenticPrompt(diffSpec, focus, maxResponseLength);
 
-  const { result, fallbackUsed } = await withModelFallback(
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,
     (m, t) => {
       const args: string[] = ["--yolo"];
@@ -170,13 +172,16 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     timeout,
   );
 
+  const actualModel = fallbackUsed ? fallbackModel : model;
+
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: partial,
+      response: partial.text,
       diffSource,
       base,
       mode: "agentic",
+      model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
       resolvedCwd: cwd,
@@ -192,6 +197,7 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     diffSource,
     base,
     mode: "agentic",
+    model: actualModel,
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
     resolvedCwd: cwd,
@@ -233,7 +239,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
 
   const fullPrompt = buildQuickPrompt(diff, focus, maxResponseLength);
 
-  const { result, fallbackUsed } = await withModelFallback(
+  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,
     (m, t) => {
       const args: string[] = [];
@@ -244,13 +250,16 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     timeout,
   );
 
+  const actualModel = fallbackUsed ? fallbackModel : model;
+
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: partial,
+      response: partial.text,
       diffSource,
       base,
       mode: "quick",
+      model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
       resolvedCwd: cwd,
@@ -266,6 +275,7 @@ async function executeQuickReview(input: InternalReviewInput): Promise<ReviewRes
     diffSource,
     base,
     mode: "quick",
+    model: actualModel,
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
     resolvedCwd: cwd,

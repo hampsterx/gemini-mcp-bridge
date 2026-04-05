@@ -125,7 +125,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: partial,
+      response: partial.text,
       valid: false,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
