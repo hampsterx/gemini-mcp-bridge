@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-04-05
+
+### Added
+- **Stream-JSON output format**: Switch from `--output-format json` to `--output-format stream-json` (NDJSON) for progressive capture. Timeouts now return partial responses instead of generic error messages.
+- **Smoke test script**: `npm run smoke` / `scripts/smoke-test.mjs` for testing tool functions directly without restarting the MCP client. Supports all four tools with configurable workingDirectory.
+- **Resolved working directory**: All tool results now include `resolvedCwd` showing the actual directory used after git root resolution and path validation.
+- **Latency budget documentation**: Document ~16s CLI cold start, per-layer timing breakdown, and implications for timeout configuration in CLAUDE.md and README.
+
+### Changed
+- `parseStreamJson()` replaces `parseGeminiOutput()` as the primary parser, with automatic fallback to legacy JSON parsing for older CLI versions.
+- `tryParsePartial()` extracts partial content from NDJSON on timeout, forwarding stderr for fallback parsing.
+- Smoke test timeouts aligned with real CLI cold start times (60-120s).
+
 ## [0.2.3] - 2026-03-30
 
 ### Added
