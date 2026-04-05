@@ -32,7 +32,7 @@ try {
       prompt: 'Reply with exactly: "pong"',
       workingDirectory,
       maxResponseLength: 10,
-      timeout: 30_000,
+      timeout: 60_000,
     });
     console.log("response:", result.response);
     console.log("resolvedCwd:", result.resolvedCwd);
@@ -43,7 +43,7 @@ try {
       query: "What is MCP (Model Context Protocol)?",
       workingDirectory,
       maxResponseLength: 50,
-      timeout: 30_000,
+      timeout: 120_000,
     });
     console.log("response:", result.response.slice(0, 200) + (result.response.length > 200 ? "..." : ""));
     console.log("resolvedCwd:", result.resolvedCwd);
@@ -55,7 +55,7 @@ try {
       quick: true,
       workingDirectory,
       maxResponseLength: 100,
-      timeout: 30_000,
+      timeout: 120_000,
     });
     console.log("response:", result.response.slice(0, 200) + (result.response.length > 200 ? "..." : ""));
     console.log("resolvedCwd:", result.resolvedCwd);

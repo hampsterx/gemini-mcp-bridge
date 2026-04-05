@@ -1,6 +1,6 @@
 import _Ajv from "ajv";
 import { spawnGemini } from "../utils/spawn.js";
-import { parseGeminiOutput, extractJson } from "../utils/parse.js";
+import { parseStreamJson, tryParsePartial, extractJson, OUTPUT_FORMAT } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import { readFiles, assemblePrompt, isImageFile } from "../utils/files.js";
 import { verifyDirectory, MAX_FILES } from "../utils/security.js";
@@ -111,7 +111,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
     (m, t) => {
       const args: string[] = [];
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       if (!useStdin) args.push(fullPrompt);
       return spawnGemini({ args, cwd, stdin: useStdin ? fullPrompt : undefined, timeout: t });
     },
@@ -123,8 +123,9 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
   const skippedFiles = fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`);
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: `Structured query timed out after ${effectiveTimeout / 1000}s.`,
+      response: partial,
       valid: false,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
@@ -137,7 +138,7 @@ export async function executeStructured(input: StructuredInput): Promise<Structu
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   // Extract JSON from model's text response
   const extracted = extractJson(parsed.response);

@@ -170,6 +170,23 @@ Generate a JSON response conforming to a provided JSON Schema. The schema is emb
 
 Health check with no parameters. Returns CLI version, auth status, and server info.
 
+## Latency
+
+Each tool invocation spawns a fresh `gemini` CLI process. The CLI has a ~15-20 second cold start due to its large dependency tree (~560MB), synchronous auth checks, and extension loading. This is a [known upstream issue](https://github.com/google-gemini/gemini-cli/issues/21259) with an optimization epic in progress.
+
+**What this means in practice:**
+
+| Scenario | Typical wall time |
+|----------|-------------------|
+| Minimal query ("say pong") | 17-25s |
+| Quick code review (13KB diff) | 35-50s |
+| Agentic code review (explores repo) | 60-120s |
+| Web search + synthesis | 35-60s |
+
+The default timeouts (60-300s) account for this. Setting timeouts below 20s will always fail. If latency is critical, set `GEMINI_DEFAULT_MODEL` to skip the CLI's internal model routing step (saves 1-2s per call).
+
+A [daemon mode PR](https://github.com/google-gemini/gemini-cli/pull/20700) is in progress upstream that would eliminate cold starts by keeping a long-running process. Once merged and released, we plan to support it as an alternative to per-invocation spawning.
+
 ## Configuration
 
 Environment variables:

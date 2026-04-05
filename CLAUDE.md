@@ -71,10 +71,25 @@ From Claude Code, you can also import and call tool functions inline:
 ```bash
 node --input-type=module -e "
 import { executeQuery } from './dist/tools/query.js';
-const r = await executeQuery({ prompt: 'pong', workingDirectory: '/tmp', timeout: 15000 });
+const r = await executeQuery({ prompt: 'pong', workingDirectory: '/tmp', timeout: 30000 });
 console.log(r.resolvedCwd, r.response);
 "
 ```
+
+## Latency Budget
+
+The gemini CLI has a ~16s cold start (584MB package, synchronous init). Every spawn pays this cost. Known upstream: [optimization epic #21259](https://github.com/google-gemini/gemini-cli/issues/21259), [daemon mode PR #20700](https://github.com/google-gemini/gemini-cli/pull/20700).
+
+| Layer | Time | Notes |
+|-------|------|-------|
+| CLI startup | ~16s | Constant, unavoidable per-spawn |
+| Utility router | ~1-2s | Skipped when `--model` is specified explicitly |
+| Model inference | 1-27s | Scales with prompt size and model |
+
+Implications:
+- Timeouts under 20s are never useful for query/search/review/structured (ping is exempt, it only checks `--version`)
+- `NODE_OPTIONS=--max-old-space-size=8192` (set in `env.ts`) is critical; without it, GC pressure nearly doubles wall time
+- Setting `GEMINI_DEFAULT_MODEL` (or passing `model` per-call) skips the CLI's internal routing step
 
 ## Key Design Decisions
 
@@ -92,10 +107,10 @@ console.log(r.resolvedCwd, r.response);
 - Max 3 concurrent spawns, queue excess (FIFO, 30s queue timeout)
 
 ### Output Parsing
-1. Try stdout as JSON (some CLI versions write here)
-2. Try stderr as JSON (`--output-format json` writes here in newer versions)
-3. Fall back to ANSI-stripped plain text from stdout
-4. Tolerate malformed JSON, extract response text from partial output
+- Uses `--output-format stream-json` (NDJSON to stdout) for progressive capture
+- On timeout, parses whatever NDJSON lines were captured and returns partial content
+- Falls back to legacy JSON parsing (stdout then stderr) for older CLI versions
+- Tolerates malformed JSON, extracts response text from partial output
 
 ### Path Security
 - All paths resolved via `realpath`

@@ -1,5 +1,5 @@
 import { spawnGemini } from "../utils/spawn.js";
-import { parseGeminiOutput } from "../utils/parse.js";
+import { parseStreamJson, tryParsePartial, OUTPUT_FORMAT } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt, buildLengthLimit } from "../utils/prompts.js";
 import { verifyDirectory } from "../utils/security.js";
@@ -52,15 +52,16 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
     (m, t) => {
       const args: string[] = ["--yolo"];
       if (m) args.push("--model", m);
-      args.push("--output-format", "json");
+      args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
     },
     timeout,
   );
 
   if (result.timedOut) {
+    const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     return {
-      response: `Search timed out after ${timeout / 1000}s. Try a more specific query or increase the timeout.`,
+      response: partial,
       model: fallbackUsed ? fallbackModel : model,
       timedOut: true,
       resolvedCwd: cwd,
@@ -69,7 +70,7 @@ export async function executeSearch(input: SearchInput): Promise<SearchResult> {
 
   checkErrorPatterns(result.exitCode, result.stderr);
 
-  const parsed = parseGeminiOutput(result.stdout, result.stderr);
+  const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
     response: parsed.response,
