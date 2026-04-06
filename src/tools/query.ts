@@ -117,7 +117,7 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: partial,
+      response: partial.text,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
@@ -205,7 +205,7 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, effectiveTimeout);
     return {
-      response: partial,
+      response: partial.text,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),

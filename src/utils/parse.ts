@@ -5,6 +5,8 @@ export interface GeminiJsonOutput {
   response: string;
   /** Raw parsed JSON (full structure from CLI). */
   raw?: unknown;
+  /** Number of NDJSON stream events parsed (stream-json mode only). */
+  eventCount?: number;
 }
 
 /** Output format used for all spawn calls. */
@@ -197,13 +199,17 @@ export function parseStreamJson(stdout: string, stderr: string): GeminiJsonOutpu
   const lines = cleaned.split("\n");
   const chunks: string[] = [];
   let foundStreamLines = false;
+  let eventCount = 0;
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      if (obj["type"]) foundStreamLines = true;
+      if (obj["type"]) {
+        foundStreamLines = true;
+        eventCount++;
+      }
 
       // Collect assistant message content
       if (obj["type"] === "message" && obj["role"] === "assistant" && typeof obj["content"] === "string") {
@@ -212,7 +218,7 @@ export function parseStreamJson(stdout: string, stderr: string): GeminiJsonOutpu
 
       // If we got a full result line with a response field, prefer that
       if (obj["type"] === "result" && typeof obj["response"] === "string") {
-        return { response: obj["response"] as string, raw: obj };
+        return { response: obj["response"] as string, raw: obj, eventCount };
       }
     } catch {
       // Not JSON, skip (could be progress output from --yolo mode)
@@ -220,7 +226,7 @@ export function parseStreamJson(stdout: string, stderr: string): GeminiJsonOutpu
   }
 
   if (chunks.length > 0) {
-    return { response: chunks.join("") };
+    return { response: chunks.join(""), eventCount };
   }
 
   // No stream-json lines found, fall back to standard parsing
@@ -232,20 +238,33 @@ export function parseStreamJson(stdout: string, stderr: string): GeminiJsonOutpu
   return parseGeminiOutput(stdout, stderr);
 }
 
+export interface PartialParseResult {
+  /** Formatted response text (with timeout prefix or cold-start hint). */
+  text: string;
+  /** Number of NDJSON events parsed, if any. */
+  eventCount: number;
+}
+
 /**
  * Try to extract partial response from stream-json stdout on timeout.
  * Returns the partial content prefixed with a timeout note, or a
  * cold-start hint message if no content was captured.
  */
-export function tryParsePartial(stdout: string, stderr: string, timeoutMs: number): string {
+export function tryParsePartial(stdout: string, stderr: string, timeoutMs: number): PartialParseResult {
   const timeoutSec = Math.round(timeoutMs / 1000);
   try {
     const parsed = parseStreamJson(stdout, stderr);
     if (parsed.response.trim()) {
-      return `[Partial response, timed out after ${timeoutSec}s]\n\n${parsed.response}`;
+      return {
+        text: `[Partial response, timed out after ${timeoutSec}s]\n\n${parsed.response}`,
+        eventCount: parsed.eventCount ?? 0,
+      };
     }
   } catch {
     // No parseable content
   }
-  return `Timed out after ${timeoutSec}s with no response. The gemini CLI may still be starting up (~15-20s cold start). Try increasing the timeout.`;
+  return {
+    text: `Timed out after ${timeoutSec}s with no response. The gemini CLI may still be starting up (~15-20s cold start). Try increasing the timeout.`,
+    eventCount: 0,
+  };
 }

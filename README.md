@@ -12,6 +12,33 @@ MCP server that wraps [Gemini CLI](https://github.com/google-gemini/gemini-cli) 
 
 Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or any tool that speaks MCP.
 
+## Do you need this?
+
+If you're in a terminal agent (Claude Code, Codex CLI) with shell access, call Gemini CLI directly:
+
+```bash
+# Agentic review (Gemini explores the repo, reads files, follows imports)
+cd /path/to/repo && gemini -p --yolo "Review the changes on this branch vs main"
+
+# Review specific files
+gemini -p "Review this code for bugs and security issues" -- @src/file.ts @src/other.ts
+
+# Pipe a diff
+git diff origin/main...HEAD | gemini -p "Review this diff"
+
+# Quick question
+gemini -p "Is this approach sound for handling retries?"
+```
+
+**Tips:** `--yolo` is needed for agentic file access in headless mode (without it, tool calls block). Use `-m gemini-2.5-pro` to skip the CLI's internal model routing (~1-2s). Cold start is ~16s per invocation.
+
+**Use this MCP bridge instead when:**
+- Your client has no shell access (Cursor, Windsurf, Claude Desktop, VS Code)
+- You need structured output with JSON Schema validation (Gemini CLI has [no custom schema support](https://github.com/google-gemini/gemini-cli/issues/13388))
+- You need concurrency management (max 3 parallel spawns, queuing)
+- You need partial response capture on timeout (NDJSON streaming)
+- You want response length controls (`maxResponseLength` parameter)
+
 ## How does this compare to other Gemini MCP servers?
 
 There are several Gemini MCP servers available. They split into two camps: **CLI wrappers** that spawn the Gemini CLI as a subprocess, and **API servers** that call the Gemini API directly. CLI wrappers get agentic capabilities (repo exploration, web search) for free; API servers avoid the CLI dependency.

@@ -22,32 +22,53 @@ const server = new McpServer({
 
 server.tool(
   "query",
-  "Send a prompt to Gemini CLI with optional file context (text and images). Text files are inlined; image files (png, jpg, etc.) trigger agentic mode for native image reading. The CLI reads GEMINI.md for project context automatically.",
+  `Send a prompt to Gemini for code analysis, file understanding, image analysis, or general questions. Provides a second opinion from a different model family.
+
+Capabilities:
+- Code analysis and explanation (pass source files via 'files' param)
+- Image understanding: screenshots, diagrams, architecture charts (png/jpg/gif/webp/bmp)
+- General knowledge questions and technical research
+- Text transformation, summarization, and generation
+
+File handling: Pass file paths in the 'files' array. Do NOT use @ syntax. Text files are read and inlined in the prompt. Image files trigger agentic mode where Gemini reads them natively.
+
+Model tips: Use gemini-2.5-flash for speed, gemini-2.5-pro for depth and complex reasoning. If omitted, the CLI auto-selects via its routing model.
+
+Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan timeouts accordingly.`,
   {
     prompt: z.string().describe("The prompt to send to Gemini"),
     files: z
       .array(z.string())
       .optional()
-      .describe("File paths (text or images) relative to workingDirectory. Images: png, jpg, jpeg, gif, webp, bmp"),
-    model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+      .describe("File paths relative to workingDirectory. Text files are inlined in prompt. Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode. Max 20 files, 1MB per text file, 5MB per image."),
+    model: z.string().optional().describe("Gemini model override. Options: gemini-2.5-flash (fast), gemini-2.5-pro (deep). Omit to let CLI auto-route."),
     workingDirectory: z
       .string()
       .optional()
-      .describe("Working directory for the CLI (reads GEMINI.md from here)"),
+      .describe("Working directory for file resolution and project context. The CLI reads GEMINI.md/AGENTS.md from here automatically."),
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 60000 for text, 120000 for images, max: 600000)"),
+      .describe("Timeout in milliseconds (default: 60000 text, 120000 images, max: 600000). Minimum useful: ~20s due to CLI startup."),
     maxResponseLength: z
       .number()
       .int()
       .positive()
       .optional()
-      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
+      .describe("Soft limit on response length in words (e.g. 500). Reduces oversized responses from Gemini's large context window."),
+  },
+  {
+    title: "Gemini Query",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
   },
   async (input) => {
+    const startMs = performance.now();
     try {
       const result = await executeQuery(input);
+      const durationMs = Math.round(performance.now() - startMs);
       const meta: string[] = [`Working directory: ${result.resolvedCwd}`];
       if (result.filesIncluded.length > 0) {
         meta.push(`Files included: ${result.filesIncluded.join(", ")}`);
@@ -71,10 +92,25 @@ server.tool(
         ? `${result.response}\n\n---\n${meta.join("\n")}`
         : result.response;
 
-      return { content: [{ type: "text", text }] };
-    } catch (e) {
       return {
-        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        content: [{
+          type: "text" as const,
+          text,
+          _meta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
+        }],
+      };
+    } catch (e) {
+      const durationMs = Math.round(performance.now() - startMs);
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error: ${(e as Error).message}`,
+          _meta: { durationMs, partial: false },
+        }],
         isError: true,
       };
     }
@@ -85,61 +121,90 @@ server.tool(
 
 server.tool(
   "review",
-  "Repo-aware code review. Computes diff locally, then Gemini explores the repo with its built-in tools (read_file, grep, etc.) for full context before reviewing. Use quick: true for fast diff-only review.",
+  `Repo-aware code review powered by Gemini. Computes the diff locally, then Gemini explores the repository for full context before reviewing.
+
+Two modes:
+- Agentic (default): Gemini runs inside the repo with read_file, grep, list_directory tools. It reads the diff, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, etc.) before producing its review. Deep and context-aware. Default timeout: 300s.
+- Quick (quick: true): Sends only the diff text. Single-pass, no repo exploration. Faster but shallow. Default timeout: 120s.
+
+Diff source: By default reviews uncommitted changes (staged + unstaged) vs HEAD. Set 'base' to diff against a branch (e.g. base: "main" for PR review).
+
+Focus examples: "security", "performance", "error handling", "test coverage", "backwards compatibility". Directs Gemini's attention without limiting the review scope.
+
+The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
   {
     uncommitted: z
       .boolean()
       .optional()
-      .describe("Review uncommitted changes (staged + unstaged). Default: true"),
+      .describe("Review uncommitted changes (staged + unstaged) vs HEAD. Default: true."),
     base: z
       .string()
       .optional()
-      .describe("Base branch/ref to diff against (e.g. 'main'). Overrides uncommitted."),
+      .describe("Base branch/ref to diff against (e.g. 'main', 'origin/develop'). Produces a three-dot diff (base...HEAD). Overrides uncommitted."),
     focus: z
       .string()
       .optional()
-      .describe("Optional focus area for the review (e.g. 'security', 'performance', 'error handling')"),
+      .describe("Direct review attention to a specific area. Examples: 'security', 'performance', 'error handling', 'test coverage'."),
     quick: z
       .boolean()
       .optional()
-      .describe("Skip repo exploration, just review the diff text. Faster but less context. Default: false"),
-    model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+      .describe("Quick mode: diff-only review, no repo exploration. ~2x faster, less context. Default: false (agentic)."),
+    model: z.string().optional().describe("Gemini model override. Omit to let CLI auto-route. gemini-2.5-pro recommended for thorough reviews."),
     workingDirectory: z
       .string()
       .optional()
-      .describe("Repository directory (auto-resolves to git root)"),
+      .describe("Repository directory. Auto-resolves to git root, so subdirectories work."),
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 300000 agentic / 120000 quick, max: 600000)"),
+      .describe("Timeout in ms (default: 300000 agentic, 120000 quick, max: 600000). Agentic reviews of large diffs may need the full 300s."),
     maxResponseLength: z
       .number()
       .int()
       .positive()
       .optional()
-      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
+      .describe("Soft limit on review length in words. Useful for large diffs where the review could be very long."),
+  },
+  {
+    title: "Code Review",
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
   },
   async (input) => {
+    const startMs = performance.now();
     try {
       const result = await executeReview(input);
+      const durationMs = Math.round(performance.now() - startMs);
       const meta: string[] = [
         `Working directory: ${result.resolvedCwd}`,
         `Diff source: ${result.diffSource}`,
         `Mode: ${result.mode}`,
       ];
       if (result.base) meta.push(`Base: ${result.base}`);
-      if (result.fallbackUsed) meta.push("Note: fallback model used after quota exhaustion on original model");
+      if (result.fallbackUsed) meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
       if (result.timedOut) meta.push("(timed out)");
 
       return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: `${result.response}\n\n---\n${meta.join("\n")}`,
+          _meta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
         }],
       };
     } catch (e) {
+      const durationMs = Math.round(performance.now() - startMs);
       return {
-        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        content: [{
+          type: "text" as const,
+          text: `Error: ${(e as Error).message}`,
+          _meta: { durationMs, partial: false },
+        }],
         isError: true,
       };
     }
@@ -150,28 +215,43 @@ server.tool(
 
 server.tool(
   "search",
-  "Google Search grounded query. Gemini searches the web via google_web_search and synthesizes an answer with source URLs. Uses agentic mode.",
+  `Google Search grounded research. Gemini searches the web using google_web_search and synthesizes a comprehensive answer with source URLs and citations.
+
+Use for: current events, documentation lookups, API references, comparing technologies, verifying facts, finding recent releases or changelogs.
+
+The query can be a natural language question or a search-style keyword string. Gemini may issue multiple searches to build a complete answer. Results include source URLs for verification.
+
+Output is a synthesized summary (500-1500 words by default), not raw search results. Use maxResponseLength to adjust.`,
   {
-    query: z.string().describe("Search query or question to research using Google Search"),
-    model: z.string().optional().describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+    query: z.string().describe("Search query or research question. Natural language works best (e.g. 'What changed in Node.js 22?' or 'MCP protocol specification transport options')."),
+    model: z.string().optional().describe("Gemini model override. Omit to let CLI auto-route."),
     workingDirectory: z
       .string()
       .optional()
-      .describe("Working directory for the CLI"),
+      .describe("Working directory for the CLI process."),
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 120000, max: 600000)"),
+      .describe("Timeout in ms (default: 120000, max: 600000). Complex multi-search queries may need more time."),
     maxResponseLength: z
       .number()
       .int()
       .positive()
       .optional()
-      .describe("Soft limit on response length in words. Appends a length instruction to the prompt."),
+      .describe("Soft limit on synthesis length in words. Default aims for 500-1500 words."),
+  },
+  {
+    title: "Web Search",
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
   },
   async (input) => {
+    const startMs = performance.now();
     try {
       const result = await executeSearch(input);
+      const durationMs = Math.round(performance.now() - startMs);
       const meta: string[] = [`Working directory: ${result.resolvedCwd}`];
       if (result.timedOut) meta.push("(timed out)");
       if (result.fallbackUsed) {
@@ -184,10 +264,25 @@ server.tool(
         ? `${result.response}\n\n---\n${meta.join("\n")}`
         : result.response;
 
-      return { content: [{ type: "text", text }] };
-    } catch (e) {
       return {
-        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        content: [{
+          type: "text" as const,
+          text,
+          _meta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
+        }],
+      };
+    } catch (e) {
+      const durationMs = Math.round(performance.now() - startMs);
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Error: ${(e as Error).message}`,
+          _meta: { durationMs, partial: false },
+        }],
         isError: true,
       };
     }
@@ -198,32 +293,41 @@ server.tool(
 
 server.tool(
   "structured",
-  "Generate a JSON response conforming to a provided JSON Schema. Use for data extraction, classification, or any task needing machine-parseable output.",
+  "Generate a JSON response conforming to a provided JSON Schema. Use for data extraction, classification, or any task needing machine-parseable output. The response is validated against the schema; isError is true if validation fails.",
   {
-    prompt: z.string().describe("What to generate or extract"),
+    prompt: z.string().describe("What to generate or extract from the provided context"),
     schema: z
       .string()
-      .describe("JSON Schema the response must conform to (as a JSON string)"),
+      .describe("JSON Schema as a string. The response will be validated against this. Max 20KB."),
     files: z
       .array(z.string())
       .optional()
-      .describe("File paths to include as context (text only, no images)"),
+      .describe("Text file paths to include as context (no images). Max 20 files, 1MB each."),
     model: z
       .string()
       .optional()
-      .describe("Gemini model to use (e.g. gemini-2.5-flash, gemini-2.5-pro)"),
+      .describe("Gemini model override. Omit to let CLI auto-route."),
     workingDirectory: z
       .string()
       .optional()
-      .describe("Working directory for file paths"),
+      .describe("Working directory for file resolution."),
     timeout: z
       .number()
       .optional()
-      .describe("Timeout in milliseconds (default: 60000)"),
+      .describe("Timeout in ms (default: 60000, max: 600000)."),
+  },
+  {
+    title: "Structured Output",
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
   },
   async (input) => {
+    const startMs = performance.now();
     try {
       const result = await executeStructured(input);
+      const durationMs = Math.round(performance.now() - startMs);
       // Structured tool returns machine-parseable JSON, so only append
       // metadata on errors/invalid responses to preserve the JSON contract.
       const meta: string[] = [];
@@ -241,16 +345,26 @@ server.tool(
 
       return {
         content: [{
-          type: "text",
+          type: "text" as const,
           text: result.valid
             ? result.response
             : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
+          _meta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
         }],
         isError: !result.valid,
       };
     } catch (e) {
+      const durationMs = Math.round(performance.now() - startMs);
       return {
-        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        content: [{
+          type: "text" as const,
+          text: `Error: ${(e as Error).message}`,
+          _meta: { durationMs, partial: false },
+        }],
         isError: true,
       };
     }
@@ -261,11 +375,20 @@ server.tool(
 
 server.tool(
   "ping",
-  "Health check: verifies gemini CLI is installed and authenticated, reports versions and capabilities.",
+  "Health check. Verifies gemini CLI is installed and authenticated, reports CLI version, auth status, configured models, and server version. Fast (~1s, no model call).",
   {},
+  {
+    title: "Health Check",
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   async () => {
+    const startMs = performance.now();
     try {
       const result = await executePing();
+      const durationMs = Math.round(performance.now() - startMs);
 
       const lines = [
         `CLI found: ${result.cliFound ? "yes" : "NO — install with: npm i -g @google/gemini-cli"}`,
@@ -279,11 +402,20 @@ server.tool(
       ];
 
       return {
-        content: [{ type: "text", text: lines.join("\n") }],
+        content: [{
+          type: "text" as const,
+          text: lines.join("\n"),
+          _meta: { durationMs, partial: false },
+        }],
       };
     } catch (e) {
+      const durationMs = Math.round(performance.now() - startMs);
       return {
-        content: [{ type: "text", text: `Error: ${(e as Error).message}` }],
+        content: [{
+          type: "text" as const,
+          text: `Error: ${(e as Error).message}`,
+          _meta: { durationMs, partial: false },
+        }],
         isError: true,
       };
     }
