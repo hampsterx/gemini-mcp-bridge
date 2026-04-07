@@ -26,3 +26,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+      # Smoke test: verify package contents are complete after build
+      - name: Verify package contents
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack-output.txt
+          # Ensure dist/ entry point exists
+          test -f dist/index.js || (echo "FAIL: dist/index.js missing" && exit 1)
+          test -f dist/server.js || (echo "FAIL: dist/server.js missing" && exit 1)
+          # Ensure prompts are included (used by review/search tools)
+          ls prompts/*.md > /dev/null 2>&1 || (echo "FAIL: prompts/ missing" && exit 1)
