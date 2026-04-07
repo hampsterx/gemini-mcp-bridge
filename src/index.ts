@@ -9,6 +9,7 @@ import { executeReview } from "./tools/review.js";
 import { executeSearch } from "./tools/search.js";
 import { executePing } from "./tools/ping.js";
 import { executeStructured } from "./tools/structured.js";
+import { maybeStartHeartbeat, type ProgressNotificationSender } from "./utils/progress.js";
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require("../package.json") as { version: string };
@@ -172,8 +173,12 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
     idempotentHint: true,
     openWorldHint: true,
   },
-  async (input) => {
+  async (input, extra) => {
     const startMs = performance.now();
+    const heartbeat = maybeStartHeartbeat(
+      extra._meta as { progressToken?: string | number } | undefined,
+      extra.sendNotification as ProgressNotificationSender,
+    );
     try {
       const result = await executeReview(input);
       const durationMs = Math.round(performance.now() - startMs);
@@ -207,6 +212,8 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
         }],
         isError: true,
       };
+    } finally {
+      heartbeat.stop();
     }
   },
 );
@@ -247,8 +254,12 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
     idempotentHint: true,
     openWorldHint: true,
   },
-  async (input) => {
+  async (input, extra) => {
     const startMs = performance.now();
+    const heartbeat = maybeStartHeartbeat(
+      extra._meta as { progressToken?: string | number } | undefined,
+      extra.sendNotification as ProgressNotificationSender,
+    );
     try {
       const result = await executeSearch(input);
       const durationMs = Math.round(performance.now() - startMs);
@@ -285,6 +296,8 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
         }],
         isError: true,
       };
+    } finally {
+      heartbeat.stop();
     }
   },
 );
