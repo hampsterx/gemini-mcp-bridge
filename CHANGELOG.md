@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-04-08
+
+### Added
+- **MCP tool annotations**: Tools declare `readOnlyHint`, `destructiveHint`, `openWorldHint`, and `idempotentHint` so MCP clients can make informed permission and caching decisions.
+- **Execution metadata**: All tool results now include `executionTime`, `timedOut`, and `resolvedModel` fields alongside the response.
+- **Rich tool descriptions**: Tool descriptions include parameter docs and usage examples, rendered inline for clients that display them.
+- **Progress heartbeats**: Long-running operations emit MCP progress notifications so clients can show activity indicators instead of appearing stalled.
+- **MCP transport wiring tests**: 7 new tests verifying server tool registration, stdio transport, and progress token propagation.
+- **CI smoke step**: `npm run smoke:ci` runs a minimal MCP handshake in CI to catch wiring regressions.
+
 ## [0.2.4] - 2026-04-05
 
 ### Added

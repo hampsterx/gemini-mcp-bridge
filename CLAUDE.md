@@ -137,13 +137,7 @@ Implications:
 
 ### Release Workflow
 
-1. Bump version in `package.json`
-2. Update `CHANGELOG.md` with new version and date
-3. Commit, tag (`v0.x.y`), push with `--tags`
-4. Create a GitHub release for the tag with notes from CHANGELOG.md (`gh release create v0.x.y --title "v0.x.y — Short description" --notes "..."`)
-5. GitHub Actions publishes to npm automatically via OIDC
-
-First publish of a new package must be done manually (`npm publish --access public` with OTP) to register it on npmjs.com. OIDC can only update existing packages.
+See [RELEASING.md](RELEASING.md) for the full checklist including pre-release checks, publish steps (OIDC auto-publish), and post-release npm validation.
 
 ## Git Workflow
 

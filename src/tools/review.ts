@@ -104,11 +104,9 @@ interface InternalReviewInput {
  * Agentic review: CLI runs with full tool access inside the repo.
  *
  * Uses --yolo for shell access. We ship a policy TOML (policies/review.toml)
- * that restricts shell to read-only git commands, but Gemini CLI has a bug
- * where headless mode strips run_shell_command before the policy engine
- * evaluates (google-gemini/gemini-cli#20469, fix PR #20639 merged but not
- * yet released as of v0.33.2). Once that fix ships, we'll switch from
- * --yolo to --policy + --approval-mode auto_edit for tighter control.
+ * that restricts shell to read-only git commands. The CLI bug that prevented
+ * policy enforcement in headless mode (#20469) is fixed in v0.35.3.
+ * TODO: Switch from --yolo to --yolo --policy for constrained shell access.
  */
 async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewResult> {
   const { cwd, uncommitted, base, focus, model, timeout, maxResponseLength } = input;
