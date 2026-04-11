@@ -144,7 +144,7 @@ Text files are read and inlined in the prompt. Image files (png, jpg, jpeg, gif,
 | `files` | string[] | `[]` | File paths (text or images) relative to workingDirectory |
 | `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
 | `workingDirectory` | string | cwd | Working directory (CLI reads GEMINI.md from here) |
-| `timeout` | number | 60000 (text) / 120000 (images) | Timeout in ms (max 600000) |
+| `timeout` | number | 60000 (text) / 120000 (images) | Timeout in ms (max 1800000) |
 
 ### search
 
@@ -155,7 +155,7 @@ Google Search grounded query. Spawns Gemini CLI in agentic mode with access to `
 | `query` | string | *required* | Search query or question to research |
 | `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
 | `workingDirectory` | string | cwd | Working directory for the CLI |
-| `timeout` | number | 120000 | Timeout in ms (max 600000) |
+| `timeout` | number | 120000 | Timeout in ms (max 1800000) |
 
 ### review
 
@@ -168,7 +168,7 @@ Agentic code review. Spawns Gemini CLI inside the repository where it runs `git 
 | `focus` | string | — | Focus area for the review (e.g. `security`, `performance`) |
 | `quick` | boolean | `false` | Skip repo exploration, just review the diff text (faster but less context) |
 | `workingDirectory` | string | cwd | Repository directory (auto-resolves to git root) |
-| `timeout` | number | 300000 (agentic) / 120000 (quick) | Timeout in ms (max 600000) |
+| `timeout` | number | auto-scaled (agentic) / 180000 (quick) | Timeout in ms (max 1800000). Agentic default scales from diff size — see [Latency expectations](#latency-expectations). |
 
 The Gemini CLI has no native code review feature. Google offers a [separate extension](https://github.com/gemini-cli-extensions/code-review) that requires the GitHub MCP server and CI environment variables (`REPOSITORY`, `PULL_REQUEST_NUMBER`). This tool takes a different approach: it computes the diff locally via `git diff`, loads a prompt template (`prompts/review-agentic.md`), and spawns the CLI in agentic mode so it can read files, follow imports, and check tests itself.
 
@@ -197,22 +197,32 @@ Generate a JSON response conforming to a provided JSON Schema. The schema is emb
 
 Health check with no parameters. Returns CLI version, auth status, and server info.
 
-## Latency
+## Latency expectations
 
-Each tool invocation spawns a fresh `gemini` CLI process. The CLI has a ~15-20 second cold start due to its large dependency tree (~560MB), synchronous auth checks, and extension loading. This is a [known upstream issue](https://github.com/google-gemini/gemini-cli/issues/21259) with an optimization epic in progress.
+Each tool invocation spawns a fresh `gemini` CLI process. The CLI has a ~15-20 second cold start due to its large dependency tree (~560MB), synchronous auth checks, and extension loading. There is no daemon mode yet ([known upstream issue](https://github.com/google-gemini/gemini-cli/issues/21259); [daemon mode PR](https://github.com/google-gemini/gemini-cli/pull/20700) in progress). Every call pays the cold start, so timeouts need to be budgeted generously.
 
-**What this means in practice:**
+**Typical wall times:**
 
 | Scenario | Typical wall time |
 |----------|-------------------|
 | Minimal query ("say pong") | 17-25s |
 | Quick code review (13KB diff) | 35-50s |
-| Agentic code review (explores repo) | 60-120s |
+| Agentic code review (explores repo) | 60-120s (small diff) to 20 min (60 files) |
 | Web search + synthesis | 35-60s |
 
-The default timeouts (60-300s) account for this. Setting timeouts below 20s will always fail. If latency is critical, set `GEMINI_DEFAULT_MODEL` to skip the CLI's internal model routing step (saves 1-2s per call).
+**Agentic review timeout.** The `review` tool auto-scales its default timeout linearly with diff size: **180s baseline + 30s per changed file**, capped at 1800s (30 min). Caller-supplied `timeout` always wins.
 
-A [daemon mode PR](https://github.com/google-gemini/gemini-cli/pull/20700) is in progress upstream that would eliminate cold starts by keeping a long-running process. Once merged and released, we plan to support it as an alternative to per-invocation spawning.
+| Files changed | Default agentic timeout |
+|---|---|
+| 1 | 210s (3.5 min) |
+| 5 | 330s (5.5 min) |
+| 15 | 630s (10.5 min) |
+| 30 | 1080s (18 min) |
+| 54+ | 1800s (30 min, the hard cap) |
+
+File count isn't a perfect workload signal (30 YAML lines ≠ 30 TypeScript files with deep imports), so the formula is deliberately generous. For very large diffs, prefer `quick: true` (diff-text only, no repo exploration) or pass a narrowed `base`. On timeout, the tool returns whatever Gemini streamed so far, prefixed with `[Partial response, timed out after Xs on N-file diff ...]`.
+
+Setting timeouts below 20s will always fail (the cold start alone is ~16s). If latency is critical, set `GEMINI_DEFAULT_MODEL` to skip the CLI's internal model routing step (saves 1-2s per call). Once daemon mode ships upstream, we plan to support it as an alternative to per-invocation spawning.
 
 ## Configuration
 
@@ -246,7 +256,7 @@ If you're running from a local clone, you can edit these to adjust review style,
 - **Environment isolation**: Subprocess receives a minimal env allowlist (HOME, PATH, GOOGLE_*, GEMINI_*). Your API keys, tokens, and credentials are not leaked.
 - **Path sandboxing**: All file paths are resolved via `realpath` and verified within the working directory. No path traversal via `..` or symlinks.
 - **No shell injection**: Subprocess spawned with `shell: false` and args as an array. No command injection from the bridge itself. (The CLI may execute shell commands internally in agentic mode — see note above.)
-- **Resource limits**: Max 3 concurrent spawns (configurable), 600s hard timeout cap, 1MB per text file / 5MB per image file, 20 files max.
+- **Resource limits**: Max 3 concurrent spawns (configurable), 1800s (30 min) hard timeout cap, 1MB per text file / 5MB per image file, 20 files max.
 
 ## License
 

@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { loadPrompt, buildLengthLimit } from "../../src/utils/prompts.js";
-import { buildAgenticPrompt, buildQuickPrompt } from "../../src/tools/review.js";
+import {
+  buildAgenticPrompt,
+  buildQuickPrompt,
+  scaleAgenticTimeout,
+} from "../../src/tools/review.js";
+import { HARD_TIMEOUT_CAP } from "../../src/utils/retry.js";
 
 describe("loadPrompt", () => {
   it("loads a template and replaces placeholders", () => {
@@ -90,6 +95,37 @@ describe("buildQuickPrompt", () => {
   it("omits length limit when maxResponseLength is not set", () => {
     const result = buildQuickPrompt("some diff");
     expect(result).not.toContain("Keep your response under");
+  });
+});
+
+describe("scaleAgenticTimeout", () => {
+  const stat = (files: number) => ({ files, insertions: 0, deletions: 0 });
+
+  it("returns the 180s baseline for an empty diff", () => {
+    expect(scaleAgenticTimeout(stat(0))).toBe(180_000);
+  });
+
+  it("adds 30s per file to the baseline", () => {
+    expect(scaleAgenticTimeout(stat(1))).toBe(210_000);
+    expect(scaleAgenticTimeout(stat(5))).toBe(330_000);
+    expect(scaleAgenticTimeout(stat(15))).toBe(630_000);
+    expect(scaleAgenticTimeout(stat(30))).toBe(1_080_000);
+  });
+
+  it("caps at HARD_TIMEOUT_CAP (30 min)", () => {
+    // 180_000 + 30_000 * 54 = 1_800_000 — exactly at the cap
+    expect(scaleAgenticTimeout(stat(54))).toBe(HARD_TIMEOUT_CAP);
+    expect(scaleAgenticTimeout(stat(60))).toBe(HARD_TIMEOUT_CAP);
+    expect(scaleAgenticTimeout(stat(1000))).toBe(HARD_TIMEOUT_CAP);
+  });
+
+  it("is monotonically non-decreasing", () => {
+    let prev = 0;
+    for (let n = 0; n <= 120; n++) {
+      const t = scaleAgenticTimeout(stat(n));
+      expect(t).toBeGreaterThanOrEqual(prev);
+      prev = t;
+    }
   });
 });
 

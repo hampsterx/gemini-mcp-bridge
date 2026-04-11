@@ -127,12 +127,16 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
     `Repo-aware code review powered by Gemini. Computes the diff locally, then Gemini explores the repository for full context before reviewing.
 
 Two modes:
-- Agentic (default): Gemini runs inside the repo with read_file, grep, list_directory tools. It reads the diff, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, etc.) before producing its review. Deep and context-aware. Default timeout: 300s.
-- Quick (quick: true): Sends only the diff text. Single-pass, no repo exploration. Faster but shallow. Default timeout: 120s.
+- Agentic (default): Gemini runs inside the repo with read_file, grep, list_directory tools. It reads the diff, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, etc.) before producing its review. Deep and context-aware.
+- Quick (quick: true): Sends only the diff text. Single-pass, no repo exploration. Faster but shallow. Default timeout: 180s.
+
+Latency scales with diff size in agentic mode. The default timeout is linear in file count: 180s base + 30s per changed file, capped at 1800s (30 min). A 5-file diff gets 330s, a 15-file diff gets 630s, a 30-file diff gets 1080s. If the diff stat can't be computed (e.g. non-git dir), the default falls back to 600s. For very large diffs prefer 'quick: true' or a narrowed 'base'.
 
 Diff source: By default reviews uncommitted changes (staged + unstaged) vs HEAD. Set 'base' to diff against a branch (e.g. base: "main" for PR review).
 
 Focus examples: "security", "performance", "error handling", "test coverage", "backwards compatibility". Directs Gemini's attention without limiting the review scope.
+
+On timeout, the tool returns whatever Gemini streamed so far, prefixed with '[Partial response, timed out after Xs on N-file diff ...]'. Not an error; partial reviews are often still useful.
 
 The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
     {
@@ -160,7 +164,7 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in ms (default: 300000 agentic, 120000 quick, max: 600000). Agentic reviews of large diffs may need the full 300s."),
+        .describe("Timeout in ms. Default for agentic is linear in file count: 180000 + 30000 * files, capped at 1800000. Default for quick: 180000. Explicit value always wins."),
       maxResponseLength: z
         .number()
         .int()
@@ -184,10 +188,17 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
       try {
         const result = await executeReview(input);
         const durationMs = Math.round(performance.now() - startMs);
+        const diffSourceLine = result.diffStat
+          ? `Diff source: ${result.diffSource} (${result.diffStat.files} files, +${result.diffStat.insertions} / -${result.diffStat.deletions})`
+          : `Diff source: ${result.diffSource}`;
+        const timeoutSec = Math.round(result.appliedTimeout / 1000);
+        const modeLine = result.timeoutScaled && result.diffStat
+          ? `Mode: ${result.mode} (timeout: ${timeoutSec}s, scaled for ${result.diffStat.files}-file diff)`
+          : `Mode: ${result.mode} (timeout: ${timeoutSec}s)`;
         const meta: string[] = [
           `Working directory: ${result.resolvedCwd}`,
-          `Diff source: ${result.diffSource}`,
-          `Mode: ${result.mode}`,
+          diffSourceLine,
+          modeLine,
         ];
         if (result.base) meta.push(`Base: ${result.base}`);
         if (result.fallbackUsed) meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
