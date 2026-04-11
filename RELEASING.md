@@ -31,19 +31,23 @@ Generic release checklist. Replace `X.Y.Z` with the actual version.
 
 ## Post-release validation
 
-The MCP server is a long-lived process. Testing the published package requires switching the MCP source and restarting the client.
-
-### 1. Switch MCP to published npm
+### 1. Confirm the version is on npm
 
 ```bash
-claude mcp remove gemini-bridge -s user && claude mcp add gemini-bridge -s user -- npx -y gemini-mcp-bridge
+npm view gemini-mcp-bridge version    # should show X.Y.Z
 ```
 
-### 2. Start a fresh Claude Code session
+### 2. Confirm the package runs
 
-Restart Claude Code so it picks up the new MCP server process.
+```bash
+npx -y gemini-mcp-bridge@X.Y.Z < /dev/null
+```
 
-### 3. Verify all tools
+The bin is an MCP stdio server with no `--help` flag, so this feeds it an empty stdin and lets it exit cleanly. Any import errors, missing bundled files (`prompts/*.md`, `policies/*.toml`), or bad bin entry will surface as a non-zero exit or stderr output. Silent exit = healthy tarball.
+
+### 3. Verify tools via an MCP client
+
+Point your MCP client (Claude Code, Codex CLI, Cursor, Windsurf, VS Code, etc.) at `npx -y gemini-mcp-bridge@X.Y.Z`, restart the client so it spawns a fresh server process, then exercise each tool:
 
 | Tool | Test | Expected |
 |------|------|----------|
@@ -52,11 +56,7 @@ Restart Claude Code so it picks up the new MCP server process.
 | `review` | Run against a repo with uncommitted changes | Returns review feedback |
 | `search` | "latest node.js LTS version" | Returns search results |
 
-### 4. Switch back to local build (if resuming development)
-
-```bash
-claude mcp remove gemini-bridge -s user && claude mcp add gemini-bridge -s user -- node /home/tim/NUI/gemini-mcp-bridge/dist/index.js
-```
+The exact switch commands depend on your MCP client. Consult its documentation for how to register an MCP server by command.
 
 ## Rollback
 
