@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-04-12
+
+### Fixed
+- **npm publish workflow**: Use corepack to activate the latest npm instead of `npm install -g npm@latest`, which broke the publish job in v0.2.6 because npm's self-upgrade unlinks its own transitive deps (`promise-retry`) mid-install on Node 22 runners. Corepack ships with Node and handles package-manager version management cleanly.
+
 ## [0.2.6] - 2026-04-12
 
 ### Fixed
-- **npm publish workflow**: Upgrade npm to latest before publishing so OIDC trusted publishing works. Node 22 LTS ships with npm 10.x, but OIDC trusted publishing on npmjs.com requires npm ≥ 11.5.1. Without this, every tagged release failed with `E404 Not Found` and had to be published manually.
+- **npm publish workflow**: Upgrade npm to latest before publishing so OIDC trusted publishing works. Node 22 LTS ships with npm 10.x, but OIDC trusted publishing on npmjs.com requires npm ≥ 11.5.1. Without this, every tagged release failed with `E404 Not Found` and had to be published manually. (Note: the `npm install -g npm@latest` approach used in v0.2.6 failed in CI; superseded by corepack in v0.2.7 before v0.2.6 ever reached npm.)
 
 ### Changed
 - `RELEASING.md` is now tracked in git (previously gitignored by the `/[A-Z]*.md` catch-all pattern). The release checklist now reflects the OIDC-first flow with manual publish as a fallback.
