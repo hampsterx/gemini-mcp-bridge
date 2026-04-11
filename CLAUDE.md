@@ -9,6 +9,8 @@ Open source MCP server that wraps Gemini CLI as a subprocess, exposing its best 
 - **Language**: TypeScript
 - **Framework**: `@modelcontextprotocol/sdk`
 
+See README § Latency expectations before changing timeout defaults or adding new tools. The `review` tool auto-scales its default timeout from `git diff --numstat` file count via `scaleAgenticTimeout` in `src/tools/review.ts`; the hard cap is defined in `src/utils/limits.ts` and imported by both `spawn.ts` and `retry.ts`.
+
 ## Architecture
 
 ```
