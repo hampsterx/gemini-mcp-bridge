@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-04-12
+
+### Fixed
+- **npm publish workflow**: Upgrade npm to latest before publishing so OIDC trusted publishing works. Node 22 LTS ships with npm 10.x, but OIDC trusted publishing on npmjs.com requires npm ≥ 11.5.1. Without this, every tagged release failed with `E404 Not Found` and had to be published manually.
+
+### Changed
+- `RELEASING.md` is now tracked in git (previously gitignored by the `/[A-Z]*.md` catch-all pattern). The release checklist now reflects the OIDC-first flow with manual publish as a fallback.
+
 ## [0.2.5] - 2026-04-08
 
 ### Added

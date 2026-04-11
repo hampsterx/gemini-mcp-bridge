@@ -17,6 +17,10 @@ coverage/
 !/CHANGELOG.md
 !/LICENSE.md
 !/CLAUDE.md
+!/RELEASING.md
+
+# Personal working-doc archive
+/.archive/
 
 # Local-only scripts
 switch-mcp.sh
