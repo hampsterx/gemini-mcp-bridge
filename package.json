@@ -1,6 +1,6 @@
 {
   "name": "gemini-mcp-bridge",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "MCP server that wraps Gemini CLI for query, code review, and health checks",
   "author": "Tim Birrell",
   "license": "MIT",
