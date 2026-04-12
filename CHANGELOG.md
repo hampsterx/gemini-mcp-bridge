@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-04-12
 
 ### Changed
 - **Always-agentic query and structured tools**: Both `query` and `structured` now run in agentic mode by default (`--approval-mode plan`). Gemini launches inside the working directory with read_file, grep, list_directory, and glob tools, exploring the repo for context instead of receiving pre-inlined file blobs. Text files are passed as `@{path}` hints, not inlined content. Image queries still use `--yolo` for native pixel access.
@@ -27,8 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Note
 - v0.2.6 and v0.2.7 never reached the registry: both publish jobs aborted before `npm publish` completed. `npm view gemini-mcp-bridge version` still shows 0.2.5 immediately before this release.
-
-## [0.2.5] - 2026-04-08
 
 ## [0.2.5] - 2026-04-08
 
