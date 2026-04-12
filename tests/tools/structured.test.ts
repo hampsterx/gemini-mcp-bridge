@@ -155,7 +155,7 @@ describe("executeStructured", () => {
     ).rejects.toThrow("does not support image files");
   });
 
-  it("text files are included in prompt", async () => {
+  it("text files: passed as @{path} hints, not inlined", async () => {
     await writeFile(path.join(tmpDir, "data.txt"), "John is 30 years old");
     mockSpawn.mockResolvedValue(jsonResponse('{"name": "John", "age": 30}'));
 
@@ -169,9 +169,13 @@ describe("executeStructured", () => {
     expect(result.valid).toBe(true);
     expect(result.filesIncluded).toEqual(["data.txt"]);
 
-    const stdin = mockSpawn.mock.calls[0][0].stdin;
-    expect(stdin).toContain("John is 30 years old");
-    expect(stdin).toContain("JSON Schema");
+    const call = mockSpawn.mock.calls[0][0];
+    // File content NOT inlined
+    expect(call.stdin).not.toContain("John is 30 years old");
+    // @{path} hint IS present
+    expect(call.stdin).toContain("@{data.txt}");
+    // Schema still embedded
+    expect(call.stdin).toContain("JSON Schema");
   });
 
   it("schema is embedded in prompt", async () => {
@@ -183,11 +187,9 @@ describe("executeStructured", () => {
       workingDirectory: tmpDir,
     });
 
-    // Prompt may be in stdin or positional arg depending on length
     const call = mockSpawn.mock.calls[0][0];
-    const prompt = call.stdin ?? call.args[call.args.length - 1];
-    expect(prompt).toContain('"type": "object"');
-    expect(prompt).toContain('"required"');
+    expect(call.stdin).toContain('"type": "object"');
+    expect(call.stdin).toContain('"required"');
   });
 
   it("timeout returns valid: false", async () => {
@@ -242,7 +244,7 @@ describe("executeStructured", () => {
     ).rejects.toThrow("Schema too large");
   });
 
-  it("does not use --yolo (non-agentic)", async () => {
+  it("uses --approval-mode plan, not --yolo", async () => {
     mockSpawn.mockResolvedValue(jsonResponse('{"name": "X", "age": 1}'));
 
     await executeStructured({
@@ -252,8 +254,22 @@ describe("executeStructured", () => {
     });
 
     const args = mockSpawn.mock.calls[0][0].args;
+    expect(args).toContain("--approval-mode");
+    expect(args).toContain("plan");
     expect(args).not.toContain("--yolo");
     expect(args).toContain("--output-format");
+  });
+
+  it("uses 120s default timeout", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse('{"name": "X", "age": 1}'));
+
+    await executeStructured({
+      prompt: "Extract",
+      schema: SIMPLE_SCHEMA,
+      workingDirectory: tmpDir,
+    });
+
+    expect(mockSpawn.mock.calls[0][0].timeout).toBe(120_000);
   });
 
   it("passes model flag when specified", async () => {
@@ -282,5 +298,20 @@ describe("executeStructured", () => {
         workingDirectory: tmpDir,
       }),
     ).rejects.toThrow("Too many files");
+  });
+
+  it("text files that fail verification are reported in filesSkipped", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse('{"name": "X", "age": 1}'));
+
+    const result = await executeStructured({
+      prompt: "Extract",
+      schema: SIMPLE_SCHEMA,
+      files: ["nonexistent.txt"],
+      workingDirectory: tmpDir,
+    });
+
+    expect(result.filesIncluded).toEqual([]);
+    expect(result.filesSkipped).toHaveLength(1);
+    expect(result.filesSkipped[0]).toContain("nonexistent.txt");
   });
 });

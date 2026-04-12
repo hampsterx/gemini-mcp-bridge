@@ -1,11 +1,5 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
-import {
-  resolveAndVerify,
-  checkFileSize,
-  MAX_FILE_SIZE,
-  MAX_FILES,
-} from "./security.js";
+import { resolveAndVerify, checkFileSize, MAX_FILE_SIZE } from "./security.js";
 
 /** Maximum file size for image files (5MB). */
 export const MAX_IMAGE_FILE_SIZE = 5_000_000;
@@ -22,54 +16,50 @@ export function isImageFile(filePath: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
-export interface FileContent {
-  path: string;
-  content: string;
-  skipped?: string;
+export interface VerifiedFiles {
+  /** Paths that passed validation (original relative paths). */
+  verified: string[];
+  /** Paths that failed with "path: reason" messages. */
+  skipped: string[];
 }
 
 /**
- * Read multiple files with path sandboxing and size limits.
+ * Verify file paths exist, are within the allowed root directory, and
+ * are under the size limit. Returns verified paths and error messages
+ * for any that failed. Defense-in-depth: the CLI also validates paths,
+ * but catching oversized files here avoids wasting Gemini's token budget.
  */
-export async function readFiles(
+export async function verifyFilePaths(
   files: string[],
   rootDir: string,
-): Promise<FileContent[]> {
-  if (files.length > MAX_FILES) {
-    throw new Error(`Too many files: ${files.length} (max ${MAX_FILES})`);
-  }
-
-  return Promise.all(
-    files.map(async (f): Promise<FileContent> => {
-      const resolved = await resolveAndVerify(f, rootDir);
-      const size = await checkFileSize(resolved);
-
-      if (size > MAX_FILE_SIZE) {
-        return {
-          path: f,
-          content: "",
-          skipped: `${(size / 1024).toFixed(0)}KB exceeds ${(MAX_FILE_SIZE / 1024).toFixed(0)}KB limit`,
-        };
+): Promise<VerifiedFiles> {
+  const results = await Promise.all(
+    files.map(async (f): Promise<{ verified: string } | { skipped: string }> => {
+      try {
+        const resolved = await resolveAndVerify(f, rootDir);
+        const size = await checkFileSize(resolved);
+        if (size > MAX_FILE_SIZE) {
+          return { skipped: `${f}: ${(size / 1024).toFixed(0)}KB exceeds ${(MAX_FILE_SIZE / 1024).toFixed(0)}KB limit` };
+        }
+        return { verified: f };
+      } catch (err) {
+        return { skipped: `${f}: ${(err as Error).message}` };
       }
-
-      const content = await readFile(resolved, "utf8");
-      return { path: f, content };
     }),
   );
+
+  return {
+    verified: results.filter((r): r is { verified: string } => "verified" in r).map((r) => r.verified),
+    skipped: results.filter((r): r is { skipped: string } => "skipped" in r).map((r) => r.skipped),
+  };
 }
 
 /**
- * Assemble a prompt with file contents for Gemini.
+ * Build @{path} file reference hints for agentic mode prompts.
+ * The Gemini CLI interprets @{path} as read_file targets.
  */
-export function assemblePrompt(prompt: string, fileContents: FileContent[]): string {
-  if (fileContents.length === 0) return prompt;
-
-  const parts = fileContents.map((f) => {
-    if (f.skipped) {
-      return `--- ${f.path} ---\n[SKIPPED: ${f.skipped}]`;
-    }
-    return `--- ${f.path} ---\n${f.content}`;
-  });
-
-  return `${prompt}\n\n${parts.join("\n\n")}`;
+export function buildFileHints(files: string[]): string {
+  if (files.length === 0) return "";
+  const refs = files.map((f) => `@{${f}}`).join("\n");
+  return `\n\nReferenced files:\n${refs}`;
 }

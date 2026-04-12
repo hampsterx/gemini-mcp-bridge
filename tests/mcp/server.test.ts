@@ -83,7 +83,7 @@ describe("MCP server wiring", () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("pong");
     expect(text).toContain("Working directory: /tmp/test");
-    expect(text).toContain("Files included: src/index.ts");
+    expect(text).toContain("Files hinted: src/index.ts");
   });
 
   it("returns isError on tool failure", async () => {

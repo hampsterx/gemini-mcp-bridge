@@ -23,14 +23,14 @@ We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` t
 
 | Tool | Purpose | Default Timeout |
 |------|---------|----------------|
-| `query` | One-shot query with optional text/image file attachment | 60s (text) / 120s (images) |
+| `query` | Agentic query with read-only repo exploration | 120s |
 | `search` | Google Search grounded query via `google_web_search` | 120s |
 | `review` | Agentic repo-aware code review (computes diff, CLI explores repo for context) | 300s (agentic) / 120s (quick) |
 | `ping` | Health check + CLI capability detection | 10s |
 
 ### Query Tool Details
 
-Text files are read and inlined in the prompt (non-agentic mode). Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode (`--yolo`) so the CLI can read them natively via its `read_file` tool. Mixed text+image queries inline the text and reference images by path.
+Text queries run under `--approval-mode plan` (read-only agentic). Files are passed as `@{path}` hints, Gemini reads them with its own tools and can explore surrounding code. Image files (png, jpg, jpeg, gif, webp, bmp) trigger `--yolo` mode for native pixel access. Gitignored files cannot be read in plan mode.
 
 ### Search Tool Details
 

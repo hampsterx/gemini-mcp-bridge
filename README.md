@@ -134,17 +134,17 @@ Add to your MCP settings:
 
 ### query
 
-Send a prompt to Gemini, optionally including file contents and images.
+Agentic query: Gemini runs inside your workingDirectory with read_file, grep, list_directory, and glob tools. Pass file paths as hints (not content), Gemini reads them itself and can explore surrounding code for context.
 
-Text files are read and inlined in the prompt. Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode so the CLI can read them natively via its `read_file` tool.
+Text queries run under `--approval-mode plan` (read-only agentic). Image queries use `--yolo` for native pixel access. Gitignored files cannot be read in plan mode.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prompt` | string | *required* | The prompt to send |
-| `files` | string[] | `[]` | File paths (text or images) relative to workingDirectory |
+| `files` | string[] | `[]` | File paths as hints (text or images) relative to workingDirectory |
 | `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
 | `workingDirectory` | string | cwd | Working directory (CLI reads GEMINI.md from here) |
-| `timeout` | number | 60000 (text) / 120000 (images) | Timeout in ms (max 1800000) |
+| `timeout` | number | 120000 | Timeout in ms (max 1800000) |
 
 ### search
 
@@ -174,16 +174,16 @@ The Gemini CLI has no native code review feature. Google offers a [separate exte
 
 ### structured
 
-Generate a JSON response conforming to a provided JSON Schema. The schema is embedded in the prompt, and the response is validated with [Ajv](https://ajv.js.org/). Returns `isError: true` with validation details if the response doesn't match.
+Agentic structured output: generate a JSON response conforming to a provided JSON Schema. Gemini runs inside workingDirectory with read_file and grep tools, so it can read files for context. The schema is embedded in the prompt, and the response is validated with [Ajv](https://ajv.js.org/). Returns `isError: true` with validation details if the response doesn't match.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `prompt` | string | *required* | What to generate or extract |
 | `schema` | string | *required* | JSON Schema as a JSON string |
-| `files` | string[] | `[]` | Text file paths to include as context (no images) |
+| `files` | string[] | `[]` | Text file paths as hints (no images). Gemini reads them with its own tools. |
 | `model` | string | CLI default | Model to use (e.g. `gemini-2.5-flash`) |
 | `workingDirectory` | string | cwd | Working directory for file paths |
-| `timeout` | number | 60000 | Timeout in ms |
+| `timeout` | number | 120000 | Timeout in ms |
 
 **Example:**
 ```json
@@ -256,7 +256,7 @@ If you're running from a local clone, you can edit these to adjust review style,
 - **Environment isolation**: Subprocess receives a minimal env allowlist (HOME, PATH, GOOGLE_*, GEMINI_*). Your API keys, tokens, and credentials are not leaked.
 - **Path sandboxing**: All file paths are resolved via `realpath` and verified within the working directory. No path traversal via `..` or symlinks.
 - **No shell injection**: Subprocess spawned with `shell: false` and args as an array. No command injection from the bridge itself. (The CLI may execute shell commands internally in agentic mode — see note above.)
-- **Resource limits**: Max 3 concurrent spawns (configurable), 1800s (30 min) hard timeout cap, 1MB per text file / 5MB per image file, 20 files max.
+- **Resource limits**: Max 3 concurrent spawns (configurable), 1800s (30 min) hard timeout cap, 1MB per text file, 5MB per image file, 20 files max.
 
 ## License
 

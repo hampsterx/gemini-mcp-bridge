@@ -30,7 +30,7 @@ describe("executeQuery", () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-query-test-"));
   });
 
-  it("text-only query: non-agentic, no --yolo", async () => {
+  it("text-only query: agentic with --approval-mode plan", async () => {
     mockSpawn.mockResolvedValue(jsonResponse("Hello!"));
 
     const result = await executeQuery({
@@ -42,12 +42,15 @@ describe("executeQuery", () => {
     expect(result.imagesIncluded).toEqual([]);
     expect(result.timedOut).toBe(false);
 
-    // Should NOT have --yolo
-    const args = mockSpawn.mock.calls[0][0].args;
-    expect(args).not.toContain("--yolo");
+    const call = mockSpawn.mock.calls[0][0];
+    expect(call.args).toContain("--approval-mode");
+    expect(call.args).toContain("plan");
+    expect(call.args).not.toContain("--yolo");
+    // Always uses stdin in plan mode
+    expect(call.stdin).toContain("Say hello");
   });
 
-  it("text files: inlined in prompt, non-agentic", async () => {
+  it("text files: passed as @{path} hints, not inlined", async () => {
     await writeFile(path.join(tmpDir, "notes.txt"), "some notes");
     mockSpawn.mockResolvedValue(jsonResponse("Got it"));
 
@@ -60,12 +63,14 @@ describe("executeQuery", () => {
     expect(result.filesIncluded).toEqual(["notes.txt"]);
     expect(result.imagesIncluded).toEqual([]);
 
-    const args = mockSpawn.mock.calls[0][0].args;
-    expect(args).not.toContain("--yolo");
+    const call = mockSpawn.mock.calls[0][0];
+    expect(call.args).toContain("--approval-mode");
+    expect(call.args).not.toContain("--yolo");
 
-    // Text content should be in stdin
-    const stdin = mockSpawn.mock.calls[0][0].stdin;
-    expect(stdin).toContain("some notes");
+    // File content NOT inlined
+    expect(call.stdin).not.toContain("some notes");
+    // @{path} hint IS present
+    expect(call.stdin).toContain("@{notes.txt}");
   });
 
   it("image files: switches to agentic mode with --yolo", async () => {
@@ -87,7 +92,7 @@ describe("executeQuery", () => {
     expect(call.stdin).toContain("Read and analyze the image at:");
   });
 
-  it("mixed files: text inlined, images referenced by path", async () => {
+  it("mixed files: text as @{path} hints, images referenced by path", async () => {
     await writeFile(path.join(tmpDir, "notes.txt"), "context notes");
     await writeFile(path.join(tmpDir, "diagram.jpg"), "fake jpg");
     mockSpawn.mockResolvedValue(jsonResponse("Analyzed both"));
@@ -104,8 +109,21 @@ describe("executeQuery", () => {
 
     const call = mockSpawn.mock.calls[0][0];
     expect(call.args).toContain("--yolo");
-    expect(call.stdin).toContain("context notes");
+    // Text file NOT inlined but hinted
+    expect(call.stdin).not.toContain("context notes");
+    expect(call.stdin).toContain("@{notes.txt}");
     expect(call.stdin).toContain("Read and analyze the image at:");
+  });
+
+  it("text-only query uses 120s default timeout", async () => {
+    mockSpawn.mockResolvedValue(jsonResponse("ok"));
+
+    await executeQuery({
+      prompt: "test",
+      workingDirectory: tmpDir,
+    });
+
+    expect(mockSpawn.mock.calls[0][0].timeout).toBe(120_000);
   });
 
   it("image query uses 120s default timeout", async () => {
@@ -156,7 +174,7 @@ describe("executeQuery", () => {
     expect(result.imagesIncluded).toHaveLength(1);
   });
 
-  it("skips --yolo when all images are oversized", async () => {
+  it("falls back to plan mode when all images are oversized", async () => {
     const bigImage = Buffer.alloc(5_100_000, 0);
     await writeFile(path.join(tmpDir, "huge.png"), bigImage);
     mockSpawn.mockResolvedValue(jsonResponse("text only"));
@@ -169,6 +187,8 @@ describe("executeQuery", () => {
 
     const args = mockSpawn.mock.calls[0][0].args;
     expect(args).not.toContain("--yolo");
+    expect(args).toContain("--approval-mode");
+    expect(args).toContain("plan");
   });
 
   it("imagesIncluded returns relative paths, not absolute", async () => {
@@ -194,10 +214,8 @@ describe("executeQuery", () => {
       workingDirectory: tmpDir,
     });
 
-    // Short prompts may go as positional arg or stdin
     const call = mockSpawn.mock.calls[0][0];
-    const content = call.stdin ?? call.args.join(" ");
-    expect(content).toContain("Keep your response under 300 words");
+    expect(call.stdin).toContain("Keep your response under 300 words");
   });
 
   it("omits length limit when maxResponseLength is not set", async () => {
@@ -209,8 +227,7 @@ describe("executeQuery", () => {
     });
 
     const call = mockSpawn.mock.calls[0][0];
-    const content = call.stdin ?? call.args.join(" ");
-    expect(content).not.toContain("Keep your response under");
+    expect(call.stdin).not.toContain("Keep your response under");
   });
 
   it("appends length limit to image queries", async () => {
@@ -252,5 +269,20 @@ describe("executeQuery", () => {
         workingDirectory: tmpDir,
       }),
     ).rejects.toThrow("authentication error");
+  });
+
+  it("text files that fail verification are reported in filesSkipped", async () => {
+    // File doesn't exist
+    mockSpawn.mockResolvedValue(jsonResponse("ok"));
+
+    const result = await executeQuery({
+      prompt: "Read this",
+      files: ["nonexistent.txt"],
+      workingDirectory: tmpDir,
+    });
+
+    expect(result.filesIncluded).toEqual([]);
+    expect(result.filesSkipped).toHaveLength(1);
+    expect(result.filesSkipped[0]).toContain("nonexistent.txt");
   });
 });
