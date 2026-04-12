@@ -1,60 +1,63 @@
 import { describe, it, expect } from "vitest";
-import { readFiles, assemblePrompt, isImageFile, IMAGE_EXTENSIONS } from "../../src/utils/files.js";
+import { isImageFile, IMAGE_EXTENSIONS, verifyFilePaths, buildFileHints } from "../../src/utils/files.js";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
-describe("readFiles", () => {
-  it("reads files within root", async () => {
+describe("verifyFilePaths", () => {
+  it("verifies files within root", async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
     await writeFile(path.join(tmpDir, "hello.txt"), "Hello world");
 
-    const results = await readFiles(["hello.txt"], tmpDir);
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toBe("Hello world");
-    expect(results[0].skipped).toBeUndefined();
+    const result = await verifyFilePaths(["hello.txt"], tmpDir);
+    expect(result.verified).toEqual(["hello.txt"]);
+    expect(result.skipped).toEqual([]);
   });
 
-  it("skips oversized files", async () => {
+  it("skips missing files", async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
-    // Create a 1.1MB file
-    const bigContent = "x".repeat(1_100_000);
-    await writeFile(path.join(tmpDir, "big.txt"), bigContent);
 
-    const results = await readFiles(["big.txt"], tmpDir);
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toBe("");
-    expect(results[0].skipped).toContain("exceeds");
+    const result = await verifyFilePaths(["missing.txt"], tmpDir);
+    expect(result.verified).toEqual([]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]).toContain("missing.txt");
   });
 
-  it("rejects too many files", async () => {
+  it("skips files outside root directory", async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
-    const files = Array.from({ length: 21 }, (_, i) => `file${i}.txt`);
 
-    await expect(readFiles(files, tmpDir)).rejects.toThrow("Too many files");
+    const result = await verifyFilePaths(["../etc/passwd"], tmpDir);
+    expect(result.verified).toEqual([]);
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it("handles mix of valid and invalid files", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
+    await writeFile(path.join(tmpDir, "good.txt"), "ok");
+
+    const result = await verifyFilePaths(["good.txt", "bad.txt"], tmpDir);
+    expect(result.verified).toContain("good.txt");
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]).toContain("bad.txt");
   });
 });
 
-describe("assemblePrompt", () => {
-  it("returns prompt alone when no files", () => {
-    const result = assemblePrompt("My question", []);
-    expect(result).toBe("My question");
+describe("buildFileHints", () => {
+  it("returns empty string for no files", () => {
+    expect(buildFileHints([])).toBe("");
   });
 
-  it("includes file contents", () => {
-    const result = assemblePrompt("Review this:", [
-      { path: "main.ts", content: "console.log('hi')" },
-    ]);
-    expect(result).toContain("Review this:");
-    expect(result).toContain("--- main.ts ---");
-    expect(result).toContain("console.log('hi')");
+  it("builds @{path} references for single file", () => {
+    const result = buildFileHints(["main.ts"]);
+    expect(result).toContain("@{main.ts}");
+    expect(result).toContain("Referenced files:");
   });
 
-  it("marks skipped files", () => {
-    const result = assemblePrompt("Review:", [
-      { path: "big.bin", content: "", skipped: "2048KB exceeds 1024KB limit" },
-    ]);
-    expect(result).toContain("[SKIPPED: 2048KB exceeds 1024KB limit]");
+  it("builds @{path} references for multiple files", () => {
+    const result = buildFileHints(["main.ts", "utils.ts", "test.ts"]);
+    expect(result).toContain("@{main.ts}");
+    expect(result).toContain("@{utils.ts}");
+    expect(result).toContain("@{test.ts}");
   });
 });
 

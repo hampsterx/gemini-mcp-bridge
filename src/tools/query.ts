@@ -2,10 +2,10 @@ import { spawnGemini } from "../utils/spawn.js";
 import { parseStreamJson, tryParsePartial, OUTPUT_FORMAT } from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import {
-  readFiles,
-  assemblePrompt,
   isImageFile,
   MAX_IMAGE_FILE_SIZE,
+  verifyFilePaths,
+  buildFileHints,
 } from "../utils/files.js";
 import { appendLengthLimit } from "../utils/prompts.js";
 import { resolveAndVerify, checkFileSize, verifyDirectory, MAX_FILES } from "../utils/security.js";
@@ -25,6 +25,7 @@ export interface QueryResult {
   response: string;
   model?: string;
   fallbackUsed?: boolean;
+  /** File paths passed as @{path} hints (Gemini may or may not have read them). */
   filesIncluded: string[];
   filesSkipped: string[];
   imagesIncluded: string[];
@@ -34,21 +35,17 @@ export interface QueryResult {
 }
 
 /**
- * Prompt length threshold for using stdin vs positional arg.
- * Positional args are subject to ARG_MAX (~2MB), so pipe large prompts via stdin.
+ * Default timeout for agentic queries. Plan mode boots the tool system
+ * (~16s cold start), so 120s is the minimum useful default.
  */
-const STDIN_THRESHOLD = 4000;
-
-/** Default timeout for agentic image queries (CLI needs to read files). */
-const IMAGE_QUERY_TIMEOUT = 120_000;
+const AGENTIC_QUERY_TIMEOUT = 120_000;
 
 /**
- * Execute a one-shot query against Gemini CLI.
- * Optionally includes file contents in the prompt.
+ * Execute an agentic query against Gemini CLI.
  *
- * When image files are included, switches to agentic mode (--yolo) so the CLI
- * can read them natively via its read_file tool. Text files are still inlined
- * in the prompt as before.
+ * Text queries run under --approval-mode plan (read-only agentic).
+ * Image queries run under --yolo (CLI needs native pixel access).
+ * In both cases, text files are passed as @{path} hints, not inlined.
  */
 export async function executeQuery(input: QueryInput): Promise<QueryResult> {
   const { prompt, files = [], timeout, maxResponseLength } = input;
@@ -71,10 +68,10 @@ export async function executeQuery(input: QueryInput): Promise<QueryResult> {
     return executeImageQuery({ prompt, textFiles, imageFiles, model, timeout, cwd, maxResponseLength });
   }
 
-  return executeTextQuery({ prompt, textFiles, model, timeout, cwd, maxResponseLength });
+  return executePlanQuery({ prompt, textFiles, model, timeout, cwd, maxResponseLength });
 }
 
-interface TextQueryInput {
+interface PlanQueryInput {
   prompt: string;
   textFiles: string[];
   model?: string;
@@ -83,31 +80,36 @@ interface TextQueryInput {
   maxResponseLength?: number;
 }
 
-interface ImageQueryInput extends TextQueryInput {
+interface ImageQueryInput extends PlanQueryInput {
   imageFiles: string[];
 }
 
 /**
- * Text-only query: non-agentic, files inlined in prompt.
- * This is the original behaviour, unchanged.
+ * Text query: agentic read-only mode (--approval-mode plan).
+ * Files are passed as @{path} hints; Gemini reads them with its own tools.
  */
-async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
+async function executePlanQuery(input: PlanQueryInput): Promise<QueryResult> {
   const { prompt, textFiles, model, timeout, cwd, maxResponseLength } = input;
 
-  const fileContents = textFiles.length > 0 ? await readFiles(textFiles, cwd) : [];
-  const fullPrompt = appendLengthLimit(assemblePrompt(prompt, fileContents), maxResponseLength);
+  // Verify text file paths (fail-fast, CLI would also reject)
+  const { verified, skipped } = textFiles.length > 0
+    ? await verifyFilePaths(textFiles, cwd)
+    : { verified: [] as string[], skipped: [] as string[] };
 
-  const useStdin = fullPrompt.length > STDIN_THRESHOLD || textFiles.length > 0;
-  const effectiveTimeout = Math.min(timeout ?? 60_000, HARD_TIMEOUT_CAP);
+  const fullPrompt = appendLengthLimit(
+    prompt + buildFileHints(verified),
+    maxResponseLength,
+  );
+
+  const effectiveTimeout = Math.min(timeout ?? AGENTIC_QUERY_TIMEOUT, HARD_TIMEOUT_CAP);
 
   const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,
     (m, t) => {
-      const args: string[] = [];
+      const args: string[] = ["--approval-mode", "plan"];
       if (m) args.push("--model", m);
       args.push("--output-format", OUTPUT_FORMAT);
-      if (!useStdin) args.push(fullPrompt);
-      return spawnGemini({ args, cwd, stdin: useStdin ? fullPrompt : undefined, timeout: t });
+      return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
     },
     effectiveTimeout,
   );
@@ -120,8 +122,8 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
       response: partial.text,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
-      filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
-      filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
+      filesIncluded: verified,
+      filesSkipped: skipped,
       imagesIncluded: [],
       timedOut: true,
       resolvedCwd: cwd,
@@ -136,8 +138,8 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
     response: parsed.response,
     model: actualModel,
     fallbackUsed: fallbackUsed || undefined,
-    filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
-    filesSkipped: fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
+    filesIncluded: verified,
+    filesSkipped: skipped,
     imagesIncluded: [],
     timedOut: false,
     resolvedCwd: cwd,
@@ -146,8 +148,8 @@ async function executeTextQuery(input: TextQueryInput): Promise<QueryResult> {
 
 /**
  * Image query: agentic mode (--yolo) so the CLI reads images natively.
- * Text files are still inlined in the prompt; image files are referenced by
- * absolute path with instructions for the CLI to read them.
+ * Text files are passed as @{path} hints, not inlined. Image files are
+ * referenced by path with instructions for the CLI to read them.
  */
 async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
   const { prompt, textFiles, imageFiles, model, timeout, cwd, maxResponseLength } = input;
@@ -173,26 +175,35 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
   const imageNames = validImages.map((r) => r.original);
   const skippedImages = imageResults.filter((r): r is { skipped: string } => "skipped" in r).map((r) => r.skipped);
 
-  // Read text files
-  const fileContents = textFiles.length > 0 ? await readFiles(textFiles, cwd) : [];
-  const textPart = assemblePrompt(prompt, fileContents);
+  // Verify text file paths (fail-fast, no content reading)
+  const { verified: verifiedText, skipped: skippedText } = textFiles.length > 0
+    ? await verifyFilePaths(textFiles, cwd)
+    : { verified: [] as string[], skipped: [] as string[] };
 
-  // Build image instructions for the CLI (use original names, CLI resolves from cwd)
+  // Build prompt: user prompt + text file hints + image instructions
+  let fullPrompt = prompt + buildFileHints(verifiedText);
+
   const imagePart = imageNames
     .map((p) => `Read and analyze the image at: ${p}`)
     .join("\n");
-  const fullPrompt = appendLengthLimit(
-    imageNames.length > 0 ? `${textPart}\n\n## Image Files\n\n${imagePart}` : textPart,
-    maxResponseLength,
-  );
+  if (imageNames.length > 0) {
+    fullPrompt += `\n\n## Image Files\n\n${imagePart}`;
+  }
 
-  const effectiveTimeout = Math.min(timeout ?? IMAGE_QUERY_TIMEOUT, HARD_TIMEOUT_CAP);
+  fullPrompt = appendLengthLimit(fullPrompt, maxResponseLength);
+
+  const effectiveTimeout = Math.min(timeout ?? AGENTIC_QUERY_TIMEOUT, HARD_TIMEOUT_CAP);
 
   const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,
     (m, t) => {
       const args: string[] = [];
-      if (imageNames.length > 0) args.push("--yolo");
+      if (imageNames.length > 0) {
+        args.push("--yolo");
+      } else {
+        // All images failed verification; fall back to read-only agentic
+        args.push("--approval-mode", "plan");
+      }
       if (m) args.push("--model", m);
       args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
@@ -208,11 +219,8 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
       response: partial.text,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
-      filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
-      filesSkipped: [
-        ...fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
-        ...skippedImages,
-      ],
+      filesIncluded: verifiedText,
+      filesSkipped: [...skippedText, ...skippedImages],
       imagesIncluded: imageNames,
       timedOut: true,
       resolvedCwd: cwd,
@@ -227,14 +235,10 @@ async function executeImageQuery(input: ImageQueryInput): Promise<QueryResult> {
     response: parsed.response,
     model: actualModel,
     fallbackUsed: fallbackUsed || undefined,
-    filesIncluded: fileContents.filter((f) => !f.skipped).map((f) => f.path),
-    filesSkipped: [
-      ...fileContents.filter((f) => f.skipped).map((f) => `${f.path}: ${f.skipped}`),
-      ...skippedImages,
-    ],
+    filesIncluded: verifiedText,
+    filesSkipped: [...skippedText, ...skippedImages],
     imagesIncluded: imageNames,
     timedOut: false,
     resolvedCwd: cwd,
   };
 }
-

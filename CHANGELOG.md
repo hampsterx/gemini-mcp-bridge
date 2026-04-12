@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Always-agentic query and structured tools**: Both `query` and `structured` now run in agentic mode by default (`--approval-mode plan`). Gemini launches inside the working directory with read_file, grep, list_directory, and glob tools, exploring the repo for context instead of receiving pre-inlined file blobs. Text files are passed as `@{path}` hints, not inlined content. Image queries still use `--yolo` for native pixel access.
+- **Default timeout raised to 120s** for both `query` and `structured` (was 60s for text queries). Plan mode boots the CLI tool system, which adds to the ~16s cold start.
+- **Tool descriptions updated**: Both tools now explicitly describe themselves as agentic. The `files` parameter documentation clarifies that contents are NOT inlined.
+- **Footer label**: `Files included:` renamed to `Files hinted:` in tool responses to reflect the new semantics (paths passed, Gemini may or may not have read them).
+
+### Removed
+- **File content inlining**: `readFiles()` and `assemblePrompt()` removed from `src/utils/files.ts`. No text file content is pre-read or inlined into prompts.
+
+### Note
+- **Gitignored files are unreadable** in text-query mode (plan mode restriction). Image queries (`--yolo`) can still read gitignored files. This is a CLI-level constraint with no bypass.
+- **Breaking for callers relying on guaranteed file reads**: Gemini now decides which hinted files are relevant. If a file isn't pertinent to the query, Gemini may skip it. Callers who depended on "Gemini definitely saw the contents of file X" should verify via the response.
+
 ## [0.2.8] - 2026-04-12
 
 ### Fixed

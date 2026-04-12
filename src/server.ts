@@ -25,15 +25,17 @@ export function createServer(): McpServer {
 
   server.tool(
     "query",
-    `Send a prompt to Gemini for code analysis, file understanding, image analysis, or general questions. Provides a second opinion from a different model family.
+    `Agentic query: Gemini runs inside your workingDirectory with read_file, grep, list_directory, and glob tools. Pass file paths as hints (not content) — Gemini reads them itself and can explore surrounding code for context.
 
 Capabilities:
-- Code analysis and explanation (pass source files via 'files' param)
+- Code analysis with full repo exploration (Gemini follows imports, reads tests, checks related files)
 - Image understanding: screenshots, diagrams, architecture charts (png/jpg/gif/webp/bmp)
 - General knowledge questions and technical research
 - Text transformation, summarization, and generation
 
-File handling: Pass file paths in the 'files' array. Do NOT use @ syntax. Text files are read and inlined in the prompt. Image files trigger agentic mode where Gemini reads them natively.
+File handling: Pass file paths in the 'files' array as hints. Text files are referenced via @{path} — Gemini reads them with its own tools. Image files use --yolo mode for native pixel access. Gemini may also read files beyond the ones you hint at.
+
+Note: Gitignored files cannot be read in text-query mode (plan mode restriction). Image queries (--yolo) can read gitignored files.
 
 Model tips: Use gemini-2.5-flash for speed, gemini-2.5-pro for depth and complex reasoning. If omitted, the CLI auto-selects via its routing model.
 
@@ -43,7 +45,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
       files: z
         .array(z.string())
         .optional()
-        .describe("File paths relative to workingDirectory. Text files are inlined in prompt. Image files (png, jpg, jpeg, gif, webp, bmp) trigger agentic mode. Max 20 files, 1MB per text file, 5MB per image."),
+        .describe("File paths relative to workingDirectory, passed as hints. Gemini reads them with its own tools — contents are NOT inlined. Image files (png, jpg, jpeg, gif, webp, bmp) trigger --yolo mode. Max 20 files, 5MB per image."),
       model: z.string().optional().describe("Gemini model override. Options: gemini-2.5-flash (fast), gemini-2.5-pro (deep). Omit to let CLI auto-route."),
       workingDirectory: z
         .string()
@@ -52,7 +54,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in milliseconds (default: 60000 text, 120000 images, max: 600000). Minimum useful: ~20s due to CLI startup."),
+        .describe("Timeout in milliseconds (default: 120000, max: 600000). Minimum useful: ~20s due to CLI startup."),
       maxResponseLength: z
         .number()
         .int()
@@ -74,7 +76,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
         const durationMs = Math.round(performance.now() - startMs);
         const meta: string[] = [`Working directory: ${result.resolvedCwd}`];
         if (result.filesIncluded.length > 0) {
-          meta.push(`Files included: ${result.filesIncluded.join(", ")}`);
+          meta.push(`Files hinted: ${result.filesIncluded.join(", ")}`);
         }
         if (result.imagesIncluded.length > 0) {
           meta.push(`Images included: ${result.imagesIncluded.join(", ")}`);
@@ -319,7 +321,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
 
   server.tool(
     "structured",
-    "Generate a JSON response conforming to a provided JSON Schema. Use for data extraction, classification, or any task needing machine-parseable output. The response is validated against the schema; isError is true if validation fails.",
+    "Agentic structured output: generate a JSON response conforming to a provided JSON Schema. Gemini runs inside workingDirectory with read_file and grep tools, so it can read files for context. Use for data extraction, classification, or any task needing machine-parseable output. The response is validated against the schema; isError is true if validation fails.",
     {
       prompt: z.string().describe("What to generate or extract from the provided context"),
       schema: z
@@ -328,7 +330,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
       files: z
         .array(z.string())
         .optional()
-        .describe("Text file paths to include as context (no images). Max 20 files, 1MB each."),
+        .describe("Text file paths to reference as context (no images). Gemini reads them with its own tools — contents are NOT inlined. Max 20 files."),
       model: z
         .string()
         .optional()
@@ -340,7 +342,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in ms (default: 60000, max: 600000)."),
+        .describe("Timeout in ms (default: 120000, max: 600000)."),
     },
     {
       title: "Structured Output",
@@ -357,7 +359,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
         const meta: string[] = [];
         if (result.errors) meta.push(`Errors: ${result.errors}`);
         if (result.filesIncluded.length > 0) {
-          meta.push(`Files: ${result.filesIncluded.join(", ")}`);
+          meta.push(`Files hinted: ${result.filesIncluded.join(", ")}`);
         }
         if (result.timedOut) meta.push("(timed out)");
         if (result.fallbackUsed) {
