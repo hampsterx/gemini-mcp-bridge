@@ -18,6 +18,8 @@ coverage/
 !/LICENSE.md
 !/CLAUDE.md
 !/RELEASING.md
+!/DESIGN.md
+!/SECURITY.md
 
 # Personal working-doc archive
 /.archive/
