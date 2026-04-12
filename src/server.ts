@@ -45,7 +45,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
       files: z
         .array(z.string())
         .optional()
-        .describe("File paths relative to workingDirectory, passed as hints. Gemini reads them with its own tools — contents are NOT inlined. Image files (png, jpg, jpeg, gif, webp, bmp) trigger --yolo mode. Max 20 files, 5MB per image."),
+        .describe("File paths relative to workingDirectory, passed as hints. Gemini reads them with its own tools — contents are NOT inlined. Image files (png, jpg, jpeg, gif, webp, bmp) trigger --yolo mode. Max 20 files, 1MB per text file, 5MB per image."),
       model: z.string().optional().describe("Gemini model override. Options: gemini-2.5-flash (fast), gemini-2.5-pro (deep). Omit to let CLI auto-route."),
       workingDirectory: z
         .string()
@@ -330,7 +330,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
       files: z
         .array(z.string())
         .optional()
-        .describe("Text file paths to reference as context (no images). Gemini reads them with its own tools — contents are NOT inlined. Max 20 files."),
+        .describe("Text file paths to reference as context (no images). Gemini reads them with its own tools — contents are NOT inlined. Max 20 files, 1MB each."),
       model: z
         .string()
         .optional()

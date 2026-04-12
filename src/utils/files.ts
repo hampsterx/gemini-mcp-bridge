@@ -1,5 +1,5 @@
 import path from "node:path";
-import { resolveAndVerify } from "./security.js";
+import { resolveAndVerify, checkFileSize, MAX_FILE_SIZE } from "./security.js";
 
 /** Maximum file size for image files (5MB). */
 export const MAX_IMAGE_FILE_SIZE = 5_000_000;
@@ -24,9 +24,10 @@ export interface VerifiedFiles {
 }
 
 /**
- * Verify file paths exist and are within the allowed root directory.
- * Returns verified paths and error messages for any that failed.
- * This is fail-fast defense-in-depth; the CLI also validates paths.
+ * Verify file paths exist, are within the allowed root directory, and
+ * are under the size limit. Returns verified paths and error messages
+ * for any that failed. Defense-in-depth: the CLI also validates paths,
+ * but catching oversized files here avoids wasting Gemini's token budget.
  */
 export async function verifyFilePaths(
   files: string[],
@@ -35,7 +36,11 @@ export async function verifyFilePaths(
   const results = await Promise.all(
     files.map(async (f): Promise<{ verified: string } | { skipped: string }> => {
       try {
-        await resolveAndVerify(f, rootDir);
+        const resolved = await resolveAndVerify(f, rootDir);
+        const size = await checkFileSize(resolved);
+        if (size > MAX_FILE_SIZE) {
+          return { skipped: `${f}: ${(size / 1024).toFixed(0)}KB exceeds ${(MAX_FILE_SIZE / 1024).toFixed(0)}KB limit` };
+        }
         return { verified: f };
       } catch (err) {
         return { skipped: `${f}: ${(err as Error).message}` };

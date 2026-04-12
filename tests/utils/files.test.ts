@@ -31,6 +31,16 @@ describe("verifyFilePaths", () => {
     expect(result.skipped).toHaveLength(1);
   });
 
+  it("skips oversized text files (>1MB)", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
+    await writeFile(path.join(tmpDir, "big.txt"), "x".repeat(1_100_000));
+
+    const result = await verifyFilePaths(["big.txt"], tmpDir);
+    expect(result.verified).toEqual([]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]).toContain("exceeds");
+  });
+
   it("handles mix of valid and invalid files", async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), "gmb-test-"));
     await writeFile(path.join(tmpDir, "good.txt"), "ok");

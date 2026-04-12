@@ -256,7 +256,7 @@ If you're running from a local clone, you can edit these to adjust review style,
 - **Environment isolation**: Subprocess receives a minimal env allowlist (HOME, PATH, GOOGLE_*, GEMINI_*). Your API keys, tokens, and credentials are not leaked.
 - **Path sandboxing**: All file paths are resolved via `realpath` and verified within the working directory. No path traversal via `..` or symlinks.
 - **No shell injection**: Subprocess spawned with `shell: false` and args as an array. No command injection from the bridge itself. (The CLI may execute shell commands internally in agentic mode — see note above.)
-- **Resource limits**: Max 3 concurrent spawns (configurable), 1800s (30 min) hard timeout cap, 5MB per image file, 20 files max.
+- **Resource limits**: Max 3 concurrent spawns (configurable), 1800s (30 min) hard timeout cap, 1MB per text file, 5MB per image file, 20 files max.
 
 ## License
 
