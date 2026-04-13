@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { executeAssess } from "./tools/assess.js";
 import { executeQuery } from "./tools/query.js";
 import { executeReview } from "./tools/review.js";
 import { executeSearch } from "./tools/search.js";
@@ -390,6 +391,86 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
             type: "text" as const,
             text: `Error: ${(e as Error).message}`,
             _meta: { durationMs, partial: false },
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // --- assess tool ---
+
+  server.tool(
+    "assess",
+    `Zero-cost diff analysis pre-flight for the review tool. Runs git locally (no CLI spawn, no model call) and returns in <2 seconds.
+
+Returns: diff stats, changed file list, complexity classification (trivial/moderate/complex), and review depth suggestions with estimated wall-clock durations.
+
+Complexity levels:
+- trivial: 1-2 files, <100 lines
+- moderate: 3-8 files, or >100 lines
+- complex: 9+ files, or cross-cutting changes spanning 3+ directories
+
+Use this before calling 'review' to choose the right depth level and set timeout expectations.`,
+    {
+      uncommitted: z
+        .boolean()
+        .optional()
+        .describe("Assess uncommitted changes (staged + unstaged) vs HEAD. Default: true."),
+      base: z
+        .string()
+        .optional()
+        .describe("Base branch/ref to diff against (e.g. 'main'). Overrides uncommitted."),
+      workingDirectory: z
+        .string()
+        .optional()
+        .describe("Repository directory. Auto-resolves to git root."),
+    },
+    {
+      title: "Diff Assessment",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    async (input) => {
+      const startMs = performance.now();
+      try {
+        const result = await executeAssess(input);
+        const durationMs = Math.round(performance.now() - startMs);
+
+        const lines = [
+          `Complexity: ${result.complexity}`,
+          `Files changed: ${result.diffStat.files} (+${result.diffStat.insertions} / -${result.diffStat.deletions})`,
+          "",
+          "Changed files:",
+          ...result.changedFiles.map((f) => `  ${f}`),
+          "",
+          "Suggested review depths:",
+          ...result.suggestions.map(
+            (s) => `  ${s.depth} (~${s.estimatedSeconds}s): ${s.description}`,
+          ),
+        ];
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: lines.join("\n"),
+            _meta: {
+              durationMs,
+              complexity: result.complexity,
+              diffStat: result.diffStat,
+              suggestions: result.suggestions,
+            },
+          }],
+        };
+      } catch (e) {
+        const durationMs = Math.round(performance.now() - startMs);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: ${(e as Error).message}`,
+            _meta: { durationMs },
           }],
           isError: true,
         };
