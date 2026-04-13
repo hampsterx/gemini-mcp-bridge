@@ -107,6 +107,36 @@ export function getDiffStat(cwd: string, spec: DiffSpec): DiffStat {
 }
 
 /**
+ * Get the list of changed file paths for a diff spec.
+ * Uses `git diff --name-only` for clean file-per-line output.
+ */
+export function getDiffFiles(cwd: string, spec: DiffSpec): string[] {
+  const run = (refArgs: string[]): string =>
+    execFileSync("git", ["-C", cwd, "diff", "--name-only", ...refArgs], {
+      encoding: "utf8",
+      timeout: 30000,
+    });
+
+  try {
+    let raw: string;
+    if (spec.type === "branch") {
+      if (!/^[\w./-]+$/.test(spec.base)) {
+        throw new Error(
+          `Invalid base ref: "${spec.base}" — expected a branch name such as 'main' or 'origin/develop'`,
+        );
+      }
+      raw = run([`${spec.base}...HEAD`]);
+    } else {
+      raw = run(["HEAD"]);
+    }
+    return raw.trim().split("\n").filter(Boolean);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("Invalid base ref")) throw e;
+    throw new Error(`Failed to get changed files: ${e}`);
+  }
+}
+
+/**
  * Get a diff between the current branch and a base branch/ref.
  */
 export function getBranchDiff(cwd: string, base: string, contextLines = 5): string {

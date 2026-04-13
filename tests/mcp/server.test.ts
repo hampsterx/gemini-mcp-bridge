@@ -21,6 +21,9 @@ vi.mock("../../src/tools/ping.js", () => ({
 vi.mock("../../src/tools/structured.js", () => ({
   executeStructured: vi.fn(),
 }));
+vi.mock("../../src/tools/assess.js", () => ({
+  executeAssess: vi.fn(),
+}));
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -58,10 +61,10 @@ describe("MCP server wiring", () => {
     await server.close();
   });
 
-  it("lists all five registered tools", async () => {
+  it("lists all six registered tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["ping", "query", "review", "search", "structured"]);
+    expect(names).toEqual(["assess", "ping", "query", "review", "search", "structured"]);
   });
 
   it("returns tool response with metadata footer", async () => {

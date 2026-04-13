@@ -23,10 +23,15 @@ We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` t
 
 | Tool | Purpose | Default Timeout |
 |------|---------|----------------|
+| `assess` | Zero-cost diff analysis pre-flight (no CLI spawn) | N/A (<2s) |
 | `query` | Agentic query with read-only repo exploration | 120s |
 | `search` | Google Search grounded query via `google_web_search` | 120s |
 | `review` | Agentic repo-aware code review (computes diff, CLI explores repo for context) | 300s (agentic) / 120s (quick) |
 | `ping` | Health check + CLI capability detection | 10s |
+
+### Assess Tool Details
+
+Runs `git diff --numstat` and `--name-only` locally (no CLI spawn, no model call). Returns diff stats, changed file list, complexity classification (trivial/moderate/complex), and suggestions for which review depth to use with estimated wall-clock times. Use before `review` to set timeout expectations.
 
 ### Query Tool Details
 
