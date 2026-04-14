@@ -127,19 +127,27 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
 
   server.tool(
     "review",
-    `Repo-aware code review powered by Gemini. Computes the diff locally, then Gemini explores the repository for full context before reviewing.
+    `Repo-aware code review powered by Gemini. Computes the diff locally, then Gemini reviews at the requested depth.
 
-Two modes:
-- Agentic (default): Gemini runs inside the repo with read_file, grep, list_directory tools. It reads the diff, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, etc.) before producing its review. Deep and context-aware.
-- Quick (quick: true): Sends only the diff text. Single-pass, no repo exploration. Faster but shallow. Default timeout: 180s.
+Three depths:
+- scan: diff-only, single-pass, no repo exploration. Fastest (~180s timeout). Good for sanity checks and small diffs.
+- focused: diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Medium (~120-300s). Good for light-to-moderate reviews.
+- deep (default): full agentic exploration with shell access. Gemini runs git itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Slowest but deepest (~180s-30min).
 
-Latency scales with diff size in agentic mode. The default timeout is linear in file count: 180s base + 30s per changed file, capped at 1800s (30 min). A 5-file diff gets 330s, a 15-file diff gets 630s, a 30-file diff gets 1080s. If the diff stat can't be computed (e.g. non-git dir), the default falls back to 600s. For very large diffs prefer 'quick: true' or a narrowed 'base'.
+Use the 'assess' tool first to classify diff complexity and get a depth recommendation.
+
+Latency scales with diff size on focused and deep. Timeouts:
+- scan: constant 180s.
+- focused: 120s + 15s per file, capped at 300s. Fallback 240s when diff stat unavailable.
+- deep: 240s + 45s per file, capped at 1800s (30 min). Fallback 600s when diff stat unavailable.
+
+A 5-file diff: scan=180s, focused=195s, deep=465s. A 15-file diff: scan=180s, focused=300s (capped), deep=915s.
 
 Diff source: By default reviews uncommitted changes (staged + unstaged) vs HEAD. Set 'base' to diff against a branch (e.g. base: "main" for PR review).
 
 Focus examples: "security", "performance", "error handling", "test coverage", "backwards compatibility". Directs Gemini's attention without limiting the review scope.
 
-On timeout, the tool returns whatever Gemini streamed so far, prefixed with '[Partial response, timed out after Xs on N-file diff ...]'. Not an error; partial reviews are often still useful.
+On timeout, the tool returns whatever Gemini streamed so far. For focused/deep the prefix includes diff size and a hint to try a shallower depth. Partial reviews are often still useful.
 
 The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
     {
@@ -155,10 +163,14 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
         .string()
         .optional()
         .describe("Direct review attention to a specific area. Examples: 'security', 'performance', 'error handling', 'test coverage'."),
+      depth: z
+        .enum(["scan", "focused", "deep"])
+        .optional()
+        .describe("Review depth: 'scan' (diff-only, ~180s), 'focused' (diff + changed files, ~120-300s), 'deep' (full agentic exploration, ~180s-30min). Default: 'deep'. Takes precedence over 'quick' if both are set."),
       quick: z
         .boolean()
         .optional()
-        .describe("Quick mode: diff-only review, no repo exploration. ~2x faster, less context. Default: false (agentic)."),
+        .describe("DEPRECATED: use 'depth' instead. 'quick: true' maps to 'depth: \"scan\"'; 'quick: false' maps to 'depth: \"deep\"'. Kept for backwards compatibility."),
       model: z.string().optional().describe("Gemini model override. Omit to let CLI auto-route. gemini-2.5-pro recommended for thorough reviews."),
       workingDirectory: z
         .string()
@@ -167,7 +179,7 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in ms. Default for agentic is linear in file count: 180000 + 30000 * files, capped at 1800000. Default for quick: 180000. Explicit value always wins."),
+        .describe("Timeout in ms. Defaults scale by depth: scan=180000, focused=120000+15000*files (cap 300000), deep=240000+45000*files (cap 1800000). Explicit value always wins."),
       maxResponseLength: z
         .number()
         .int()

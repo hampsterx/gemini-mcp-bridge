@@ -125,9 +125,11 @@ describe("MCP server wiring", () => {
     mockReview.mockResolvedValue({
       response: "LGTM, no issues found.",
       diffSource: "uncommitted",
-      mode: "quick",
+      mode: "scan",
       timedOut: false,
       resolvedCwd: "/tmp/repo",
+      appliedTimeout: 180_000,
+      timeoutScaled: false,
     });
 
     const result = await client.callTool({
@@ -138,7 +140,31 @@ describe("MCP server wiring", () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("LGTM");
     expect(text).toContain("Diff source: uncommitted");
-    expect(text).toContain("Mode: quick");
+    expect(text).toContain("Mode: scan");
+  });
+
+  it("review tool accepts the depth parameter and reports the resolved depth", async () => {
+    mockReview.mockResolvedValue({
+      response: "Focused review output.",
+      diffSource: "uncommitted",
+      mode: "focused",
+      timedOut: false,
+      resolvedCwd: "/tmp/repo",
+      appliedTimeout: 195_000,
+      timeoutScaled: true,
+      diffStat: { files: 5, insertions: 20, deletions: 4 },
+    });
+
+    const result = await client.callTool({
+      name: "review",
+      arguments: { depth: "focused" },
+    });
+
+    expect(mockReview).toHaveBeenCalledWith(expect.objectContaining({ depth: "focused" }));
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Focused review output.");
+    expect(text).toContain("Mode: focused");
+    expect(text).toContain("scaled for 5-file diff");
   });
 
   describe("progress notifications", () => {
@@ -160,9 +186,11 @@ describe("MCP server wiring", () => {
                 resolve({
                   response: "Looks good.",
                   diffSource: "uncommitted" as const,
-                  mode: "quick" as const,
+                  mode: "scan" as const,
                   timedOut: false,
                   resolvedCwd: "/tmp/repo",
+                  appliedTimeout: 180_000,
+                  timeoutScaled: false,
                 }),
               20_000,
             ),
@@ -211,9 +239,11 @@ describe("MCP server wiring", () => {
                 resolve({
                   response: "OK",
                   diffSource: "uncommitted" as const,
-                  mode: "quick" as const,
+                  mode: "scan" as const,
                   timedOut: false,
                   resolvedCwd: "/tmp/repo",
+                  appliedTimeout: 180_000,
+                  timeoutScaled: false,
                 }),
               20_000,
             ),

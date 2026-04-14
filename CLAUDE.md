@@ -9,7 +9,7 @@ Open source MCP server that wraps Gemini CLI as a subprocess, exposing its best 
 - **Language**: TypeScript
 - **Framework**: `@modelcontextprotocol/sdk`
 
-See README § Latency expectations before changing timeout defaults or adding new tools. The `review` tool auto-scales its default timeout from `git diff --numstat` file count via `scaleAgenticTimeout` in `src/tools/review.ts`; the hard cap is defined in `src/utils/limits.ts` and imported by both `spawn.ts` and `retry.ts`.
+See README § Latency expectations before changing timeout defaults or adding new tools. The `review` tool auto-scales its default timeout from `git diff --numstat` file count via `scaleTimeoutForDepth` in `src/tools/review.ts` (per-depth formulas — see Review Tool Details); the hard cap is defined in `src/utils/limits.ts` and imported by both `spawn.ts` and `retry.ts`.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` t
 | `assess` | Zero-cost diff analysis pre-flight (no CLI spawn) | N/A (<2s) |
 | `query` | Agentic query with read-only repo exploration | 120s |
 | `search` | Google Search grounded query via `google_web_search` | 120s |
-| `review` | Agentic repo-aware code review (computes diff, CLI explores repo for context) | 300s (agentic) / 120s (quick) |
+| `review` | Repo-aware code review at caller-chosen depth (scan/focused/deep) | Per depth: scan 180s, focused 120-300s, deep 240-1800s |
 | `ping` | Health check + CLI capability detection | 10s |
 
 ### Assess Tool Details
@@ -43,12 +43,17 @@ Spawns CLI in agentic mode with access to `google_web_search`. Uses a prompt tem
 
 ### Review Tool Details
 
-The `review` tool has two modes:
+The `review` tool has three depth tiers, selectable via the `depth` parameter:
 
-- **Agentic (default)**: Sends a prompt to Gemini CLI running inside the repo. The CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.) before reviewing. Produces deeper, context-aware reviews.
-- **Quick** (`quick: true`): Sends only the diff text. Single-pass, no repo exploration. Faster but shallow.
+- **scan**: Sends only the diff text. Single-pass, no repo exploration. Constant 180s timeout. Fastest, shallowest.
+- **focused**: Pre-computes the diff and inlines it. CLI spawns in plan mode (no `--yolo`) so Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Prompt instructs Gemini to read changed files for context but NOT trace imports, check tests, or explore the wider repo. Timeout: `120s + 15s * files`, capped at 300s; 240s fallback when diff stat unavailable. Containment is **prompt-driven, not CLI-enforced**: plan mode removes shell access but does not scope reads to changed files.
+- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback.
 
-Optional `focus` parameter lets callers direct attention (e.g. "security", "performance", "error handling").
+The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
+
+Use the `assess` tool first to classify diff complexity and get a depth recommendation.
+
+Optional `focus` parameter lets callers direct attention (e.g. "security", "performance", "error handling") across any depth.
 
 ## Development
 

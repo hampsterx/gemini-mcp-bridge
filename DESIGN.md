@@ -79,23 +79,42 @@ prompts/
 
 Templates are loaded by `src/utils/prompts.ts` and filled with placeholders (diff content, schema, focus area, etc.). When running via `npx`, the bundled templates are used. When running from a local clone, you can edit them to adjust review style, search instructions, or output formatting.
 
-## Agentic Review Timeout Scaling
+## Review Timeout Scaling
 
-The `review` tool auto-scales its default timeout linearly from the diff size:
+The `review` tool scales timeouts per depth. The formulas live in `scaleTimeoutForDepth()` in `src/tools/review.ts`; the hard cap is defined in `src/utils/limits.ts`.
 
-**180s baseline + 30s per changed file**, capped at 1800s (30 min).
+### scan (constant)
+
+Constant **180s**, independent of diff size. Diff-only, single-pass, no repo exploration.
+
+### focused (moderate, capped)
+
+**120s baseline + 15s per changed file**, capped at 300s. Fallback 240s when diff stat unavailable.
+
+| Files | Timeout |
+|---|---|
+| 1 | 135s |
+| 5 | 195s |
+| 10 | 270s |
+| 12+ | 300s (cap) |
+
+Plan mode: Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Scope is **prompt-guided, not CLI-enforced** — Gemini could technically read any non-gitignored file in the repo, so containment to the diff footprint relies on the prompt instruction plus the reduced tool surface.
+
+### deep (generous, hard-capped)
+
+**240s baseline + 45s per changed file**, capped at 1800s (30 min). Fallback 600s when diff stat unavailable.
 
 | Files changed | Default timeout |
 |---|---|
-| 1 | 210s (3.5 min) |
-| 5 | 330s (5.5 min) |
-| 15 | 630s (10.5 min) |
-| 30 | 1080s (18 min) |
-| 54+ | 1800s (30 min, hard cap) |
+| 1 | 285s (4.75 min) |
+| 5 | 465s (7.75 min) |
+| 10 | 690s (11.5 min) |
+| 20 | 1140s (19 min) |
+| 35+ | 1800s (30 min, hard cap) |
 
-A caller-supplied `timeout` parameter always takes precedence. File count isn't a perfect workload signal (30 YAML lines differ from 30 TypeScript files with deep imports), so the formula is deliberately generous. For very large diffs, prefer `quick: true` (diff-text only, no repo exploration) or pass a narrowed `base`.
+Full agentic exploration with `--yolo`. File count isn't a perfect workload signal (30 YAML lines differ from 30 TypeScript files with deep imports), so the formula is deliberately generous. For very large diffs, drop to `focused` (reads changed files only) or `scan` (diff text only), or pass a narrowed `base`.
 
-The scaling logic lives in `scaleAgenticTimeout()` in `src/tools/review.ts`, with the hard cap defined in `src/utils/limits.ts`.
+A caller-supplied `timeout` parameter always takes precedence at any depth (capped at `HARD_TIMEOUT_CAP`).
 
 ## Latency Budget
 

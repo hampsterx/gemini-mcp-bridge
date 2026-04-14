@@ -14,10 +14,16 @@ import { verifyDirectory } from "../utils/security.js";
 import { resolveModel } from "../utils/model.js";
 import { withModelFallback, HARD_TIMEOUT_CAP } from "../utils/retry.js";
 
+/** Review depth tier. Callers pick based on diff size + how much context they want. */
+export type ReviewDepth = "scan" | "focused" | "deep";
+
 export interface ReviewInput {
   uncommitted?: boolean;
   base?: string;
   focus?: string;
+  /** Review depth. Takes precedence over `quick` when both are set. Default: "deep". */
+  depth?: ReviewDepth;
+  /** @deprecated Use `depth` instead. `quick: true` maps to `depth: "scan"`; `quick: false` maps to `depth: "deep"`. */
   quick?: boolean;
   model?: string;
   workingDirectory?: string;
@@ -29,7 +35,11 @@ export interface ReviewResult {
   response: string;
   diffSource: "uncommitted" | "branch";
   base?: string;
-  mode: "agentic" | "quick";
+  /**
+   * Actual depth the review ran at. Breaking change from v0.3.0, which used
+   * `"agentic" | "quick"`.
+   */
+  mode: ReviewDepth;
   /** Actual model used (reflects fallback if quota exhausted). */
   model?: string;
   fallbackUsed?: boolean;
@@ -40,43 +50,80 @@ export interface ReviewResult {
   diffStat?: DiffStat;
   /** Timeout actually applied to the spawn (ms), including any dynamic scaling. */
   appliedTimeout: number;
-  /** True when appliedTimeout came from diff-size auto-scaling (agentic only, no caller override). */
+  /** True when appliedTimeout came from diff-size auto-scaling (focused/deep only, no caller override). */
   timeoutScaled: boolean;
 }
 
-/**
- * Fallback default timeout for agentic review when the diff stat can't be
- * computed. Normal path auto-scales via scaleAgenticTimeout().
- */
+// --- Timeout constants ---
+
+/** Scan (shallow diff-only review) uses a constant timeout. */
+export const SCAN_TIMEOUT = 180_000;
+
+/** Back-compat alias — exported under the old name so existing callers keep working. */
+export const QUICK_TIMEOUT = SCAN_TIMEOUT;
+
+/** Fallback timeout for focused review when the diff stat is unavailable. */
+export const FOCUSED_FALLBACK_TIMEOUT = 240_000;
+
+/** Fallback default timeout for deep review when the diff stat can't be computed. */
 export const AGENTIC_TIMEOUT = 600_000;
 
-/** Default timeout for quick review (diff-only, single pass). */
-export const QUICK_TIMEOUT = 180_000;
+// Focused scaling: base + per-file, capped.
+const FOCUSED_BASE_MS = 120_000;
+const FOCUSED_PER_FILE_MS = 15_000;
+const FOCUSED_CAP_MS = 300_000;
 
-/** Baseline budget covering CLI cold start + one small-diff review. */
-const AGENTIC_BASE_MS = 180_000;
-
-/** Per-file increment covering extra read/grep tool calls as the diff grows. */
-const AGENTIC_PER_FILE_MS = 30_000;
+// Deep scaling: more generous than focused because the CLI explores the whole repo.
+const DEEP_BASE_MS = 240_000;
+const DEEP_PER_FILE_MS = 45_000;
 
 /**
- * Map diff size (file count) to an agentic-review timeout budget.
+ * Compute the timeout budget for a given depth from the diff stat.
  *
- * Linear scaling: `base + per_file * files`, capped at HARD_TIMEOUT_CAP.
- * The baseline covers the CLI cold start (~16s) plus one small-diff
- * review; each additional file adds budget for the extra tool calls the
- * agent makes exploring context. Caller-supplied timeout still wins.
+ * - `scan`: constant `SCAN_TIMEOUT`, independent of diff size.
+ * - `focused`: `120s + 15s * files`, capped at 300s. Reading changed files is
+ *   cheaper than full agentic exploration, but larger diffs still need more room.
+ * - `deep`: `240s + 45s * files`, capped at `HARD_TIMEOUT_CAP`. Covers the CLI
+ *   cold start plus generous per-file budget for the exploration the agent
+ *   does (reads, greps, follows imports, checks tests).
  *
- * File count isn't a perfect signal (30 YAML lines ≠ 30 TypeScript files
- * with deep imports), so this is deliberately generous. The caller can
- * always pass an explicit `timeout` to override.
+ * The caller explicitly picked their depth, so scaling matches that choice.
  */
-export function scaleAgenticTimeout(stat: DiffStat): number {
-  return Math.min(AGENTIC_BASE_MS + AGENTIC_PER_FILE_MS * stat.files, HARD_TIMEOUT_CAP);
+export function scaleTimeoutForDepth(depth: ReviewDepth, stat: DiffStat): number {
+  switch (depth) {
+    case "scan":
+      return SCAN_TIMEOUT;
+    case "focused":
+      return Math.min(FOCUSED_BASE_MS + FOCUSED_PER_FILE_MS * stat.files, FOCUSED_CAP_MS);
+    case "deep":
+      return Math.min(DEEP_BASE_MS + DEEP_PER_FILE_MS * stat.files, HARD_TIMEOUT_CAP);
+    default: {
+      const _exhaustive: never = depth;
+      throw new Error(`Unknown review depth: ${_exhaustive as string}`);
+    }
+  }
 }
 
+/** Fallback timeout when the diff stat is unavailable. */
+export function defaultTimeoutForDepth(depth: ReviewDepth): number {
+  switch (depth) {
+    case "scan":
+      return SCAN_TIMEOUT;
+    case "focused":
+      return FOCUSED_FALLBACK_TIMEOUT;
+    case "deep":
+      return AGENTIC_TIMEOUT;
+    default: {
+      const _exhaustive: never = depth;
+      throw new Error(`Unknown review depth: ${_exhaustive as string}`);
+    }
+  }
+}
+
+// --- Prompt builders ---
+
 /**
- * Agentic review prompt. The CLI has full tool access (shell, file read,
+ * Deep (agentic) review prompt. The CLI has full tool access (shell, file read,
  * grep, etc.) and will run git commands, read files, and explore the repo.
  */
 export function buildAgenticPrompt(diffSpec: string, focus?: string, maxResponseLength?: number): string {
@@ -88,7 +135,7 @@ export function buildAgenticPrompt(diffSpec: string, focus?: string, maxResponse
 }
 
 /**
- * Quick review prompt. Pre-computed diff, no repo exploration.
+ * Scan review prompt. Pre-computed diff, no repo exploration.
  */
 export function buildQuickPrompt(diff: string, focus?: string, maxResponseLength?: number): string {
   return loadPrompt("review-quick.md", {
@@ -99,19 +146,47 @@ export function buildQuickPrompt(diff: string, focus?: string, maxResponseLength
 }
 
 /**
- * Execute a code review.
+ * Focused review prompt. Pre-computed diff + instructions to read changed files
+ * only. The CLI spawns in plan mode (no `--yolo`), so Gemini has read_file /
+ * grep_search / list_directory but no shell. Containment to changed files is
+ * prompt-driven, not CLI-enforced.
+ */
+export function buildFocusedPrompt(diff: string, focus?: string, maxResponseLength?: number): string {
+  return loadPrompt("review-focused.md", {
+    DIFF: diff,
+    FOCUS_SECTION: focus ? `Pay special attention to: ${focus}` : "",
+    LENGTH_LIMIT: buildLengthLimit(maxResponseLength),
+  });
+}
+
+// --- Depth resolution ---
+
+/**
+ * Resolve the requested depth from input. `depth` wins over `quick` when both
+ * are set. Legacy mapping: `quick: true` -> `"scan"`, `quick: false` or unset
+ * -> `"deep"`.
+ */
+export function resolveDepth(input: { depth?: ReviewDepth; quick?: boolean }): ReviewDepth {
+  if (input.depth) return input.depth;
+  if (input.quick === true) return "scan";
+  return "deep";
+}
+
+// --- Public entry ---
+
+/**
+ * Execute a code review at the requested depth.
  *
- * Default (agentic): Spawns Gemini CLI in yolo mode inside the repo. The CLI
- * runs git diff itself, reads full files, follows imports, checks tests, and
- * reads project instruction files (CLAUDE.md, GEMINI.md, etc.). No diff is
- * pre-computed; the CLI does everything.
- *
- * Quick mode: Pre-computes the diff in TypeScript and sends it as text.
- * Faster, single-pass, no repo exploration.
+ * Depths:
+ * - `scan`: diff-only, single-pass, no repo exploration. Fastest, shallowest.
+ * - `focused`: diff + CLI reads changed files (plan mode, no shell). Medium.
+ * - `deep` (default): full agentic exploration with `--yolo`. CLI runs git
+ *   itself, follows imports, checks tests, reads project instruction files.
  */
 export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
-  const { uncommitted = true, base, focus, quick = false, maxResponseLength } = input;
+  const { uncommitted = true, base, focus, maxResponseLength } = input;
   const model = resolveModel(input.model);
+  const depth = resolveDepth(input);
 
   // Resolve to git root
   const requestedDir = input.workingDirectory
@@ -119,9 +194,9 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
     : process.cwd();
   const cwd = getGitRoot(requestedDir);
 
-  // Compute the diff stat up-front so both modes can report it and agentic
-  // mode can scale its timeout. Failures are non-fatal — we fall back to the
-  // static default.
+  // Compute the diff stat up-front so the result can report it and the depth
+  // can scale its timeout. Failures are non-fatal — we fall back to the
+  // per-depth static default.
   const diffSpec: DiffSpec = base ? { type: "branch", base } : { type: "uncommitted" };
   let diffStat: DiffStat | undefined;
   try {
@@ -132,22 +207,22 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
 
   // Timeout selection:
   //   - caller-supplied timeout always wins (capped at HARD_TIMEOUT_CAP)
-  //   - quick mode uses the static QUICK_TIMEOUT
-  //   - agentic mode scales from diff stat, or falls back to AGENTIC_TIMEOUT
+  //   - else scale from diff stat when available
+  //   - else fall back to the per-depth default
+  // `timeoutScaled` tracks whether the value came from size-based scaling;
+  // scan is a constant regardless of diff size, so it never counts as "scaled".
   let appliedTimeout: number;
   let timeoutScaled = false;
   if (input.timeout !== undefined) {
     appliedTimeout = Math.min(input.timeout, HARD_TIMEOUT_CAP);
-  } else if (quick) {
-    appliedTimeout = QUICK_TIMEOUT;
   } else if (diffStat) {
-    appliedTimeout = scaleAgenticTimeout(diffStat);
-    timeoutScaled = true;
+    appliedTimeout = scaleTimeoutForDepth(depth, diffStat);
+    timeoutScaled = depth !== "scan";
   } else {
-    appliedTimeout = AGENTIC_TIMEOUT;
+    appliedTimeout = defaultTimeoutForDepth(depth);
   }
 
-  const shared = {
+  return runReview(depth, {
     cwd,
     uncommitted,
     base,
@@ -157,14 +232,10 @@ export async function executeReview(input: ReviewInput): Promise<ReviewResult> {
     maxResponseLength,
     diffStat,
     timeoutScaled,
-  };
-
-  if (quick) {
-    return executeQuickReview(shared);
-  }
-
-  return executeAgenticReview(shared);
+  });
 }
+
+// --- Shared execution path ---
 
 interface InternalReviewInput {
   cwd: string;
@@ -178,72 +249,77 @@ interface InternalReviewInput {
   timeoutScaled: boolean;
 }
 
+interface ReviewMeta {
+  appliedTimeout: number;
+  timeoutScaled: boolean;
+  diffStat?: DiffStat;
+}
+
 /**
- * Agentic review: CLI runs with full tool access inside the repo.
- *
- * Uses --yolo for shell access. We ship a policy TOML (policies/review.toml)
- * that restricts shell to read-only git commands. The CLI bug that prevented
- * policy enforcement in headless mode (#20469) is fixed in v0.35.3.
- * TODO: Switch from --yolo to --yolo --policy for constrained shell access.
+ * Unified review runner. Per-depth config selects the prompt template and
+ * whether to spawn in yolo (full tool access, deep only) or plan mode (scan,
+ * focused). The diff is always pre-computed in TypeScript: scan/focused
+ * inline it in the prompt, deep mode inlines only the diff-spec command and
+ * the CLI runs git itself.
  */
-async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewResult> {
+async function runReview(
+  depth: ReviewDepth,
+  input: InternalReviewInput,
+): Promise<ReviewResult> {
   const { cwd, uncommitted, base, focus, model, timeout, maxResponseLength, diffStat, timeoutScaled } = input;
-  const meta = { appliedTimeout: timeout, timeoutScaled, diffStat };
+  const meta: ReviewMeta = { appliedTimeout: timeout, timeoutScaled, diffStat };
 
-  // Build the git diff command for the prompt (CLI will run it)
-  let diffSpec: string;
+  // Validate / resolve diff source
   let diffSource: ReviewResult["diffSource"];
-
   if (base) {
     if (!/^[\w./-]+$/.test(base)) {
       throw new Error(`Invalid base ref: "${base}" — must be a valid git ref (alphanumeric, -, _, /, .)`);
     }
-    diffSpec = `git diff ${base}...HEAD -U5`;
     diffSource = "branch";
   } else if (uncommitted) {
-    diffSpec = "git diff HEAD -U5";
     diffSource = "uncommitted";
   } else {
     throw new Error("Either 'uncommitted' must be true or 'base' must be specified");
   }
 
-  // Early exit if there's nothing to review (avoids spawning a model session)
+  // Compute the diff once. Used for early-exit detection across all depths,
+  // and inlined into the prompt for scan / focused.
+  let diff: string;
   try {
-    const diff = base ? getBranchDiff(cwd, base) : getUncommittedDiff(cwd);
-    if (!diff.trim()) {
-      return {
-        response: base
-          ? `No diff found between ${base} and HEAD.`
-          : "No uncommitted changes found.",
-        diffSource,
-        base,
-        mode: "agentic",
-        timedOut: false,
-        resolvedCwd: cwd,
-        ...meta,
-      };
-    }
+    diff = base ? getBranchDiff(cwd, base) : getUncommittedDiff(cwd);
   } catch (e) {
-    if (e instanceof Error && (e.message.includes("No uncommitted changes") || e.message.includes("No diff found"))) {
-      return {
-        response: e.message,
-        diffSource,
-        base,
-        mode: "agentic",
-        timedOut: false,
-        resolvedCwd: cwd,
-        ...meta,
-      };
+    if (isNoChangesError(e)) {
+      return emptyResult(depth, diffSource, base, cwd, meta, (e as Error).message);
     }
     throw e;
   }
+  if (!diff.trim()) {
+    const msg = base
+      ? `No diff found between ${base} and HEAD.`
+      : "No uncommitted changes found.";
+    return emptyResult(depth, diffSource, base, cwd, meta, msg);
+  }
 
-  const prompt = buildAgenticPrompt(diffSpec, focus, maxResponseLength);
+  // Build per-depth prompt + yolo flag.
+  let prompt: string;
+  let useYolo: boolean;
+  if (depth === "deep") {
+    const diffSpec = base ? `git diff ${base}...HEAD -U5` : "git diff HEAD -U5";
+    prompt = buildAgenticPrompt(diffSpec, focus, maxResponseLength);
+    useYolo = true;
+  } else if (depth === "focused") {
+    prompt = buildFocusedPrompt(diff, focus, maxResponseLength);
+    useYolo = false;
+  } else {
+    prompt = buildQuickPrompt(diff, focus, maxResponseLength);
+    useYolo = false;
+  }
 
   const { result, fallbackUsed, fallbackModel } = await withModelFallback(
     model,
     (m, t) => {
-      const args: string[] = ["--yolo"];
+      const args: string[] = [];
+      if (useYolo) args.push("--yolo");
       if (m) args.push("--model", m);
       args.push("--output-format", OUTPUT_FORMAT);
       return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
@@ -255,11 +331,16 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
 
   if (result.timedOut) {
     const partial = tryParsePartial(result.stdout, result.stderr, timeout);
+    // Annotate only for depths that have a shallower alternative. Scan has no
+    // shallower option so the "consider depth: scan" hint would be nonsense.
+    const response = depth === "scan"
+      ? partial.text
+      : annotatePartialWithStat(partial.text, diffStat);
     return {
-      response: annotatePartialWithStat(partial.text, diffStat),
+      response,
       diffSource,
       base,
-      mode: "agentic",
+      mode: depth,
       model: actualModel,
       fallbackUsed: fallbackUsed || undefined,
       timedOut: true,
@@ -276,9 +357,33 @@ async function executeAgenticReview(input: InternalReviewInput): Promise<ReviewR
     response: parsed.response,
     diffSource,
     base,
-    mode: "agentic",
+    mode: depth,
     model: actualModel,
     fallbackUsed: fallbackUsed || undefined,
+    timedOut: false,
+    resolvedCwd: cwd,
+    ...meta,
+  };
+}
+
+function isNoChangesError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  return e.message.includes("No uncommitted changes") || e.message.includes("No diff found");
+}
+
+function emptyResult(
+  depth: ReviewDepth,
+  diffSource: ReviewResult["diffSource"],
+  base: string | undefined,
+  cwd: string,
+  meta: ReviewMeta,
+  message: string,
+): ReviewResult {
+  return {
+    response: message,
+    diffSource,
+    base,
+    mode: depth,
     timedOut: false,
     resolvedCwd: cwd,
     ...meta,
@@ -296,88 +401,6 @@ function annotatePartialWithStat(partialText: string, diffStat?: DiffStat): stri
   const match = partialText.match(/^\[Partial response, timed out after (\d+)s\]/);
   if (!match) return partialText;
   const seconds = match[1];
-  const replacement = `[Partial response, timed out after ${seconds}s on ${diffStat.files}-file diff (+${diffStat.insertions} / -${diffStat.deletions}); consider quick: true or narrow the base]`;
+  const replacement = `[Partial response, timed out after ${seconds}s on ${diffStat.files}-file diff (+${diffStat.insertions} / -${diffStat.deletions}); consider depth: "scan" or narrow the base]`;
   return partialText.replace(match[0], replacement);
-}
-
-/**
- * Quick review: pre-computed diff, single-pass, no repo exploration.
- */
-async function executeQuickReview(input: InternalReviewInput): Promise<ReviewResult> {
-  const { cwd, uncommitted, base, focus, model, timeout, maxResponseLength, diffStat, timeoutScaled } = input;
-  const meta = { appliedTimeout: timeout, timeoutScaled, diffStat };
-
-  let diff: string;
-  let diffSource: ReviewResult["diffSource"];
-
-  try {
-    if (base) {
-      diff = getBranchDiff(cwd, base);
-      diffSource = "branch";
-    } else if (uncommitted) {
-      diff = getUncommittedDiff(cwd);
-      diffSource = "uncommitted";
-    } else {
-      throw new Error("Either 'uncommitted' must be true or 'base' must be specified");
-    }
-  } catch (e) {
-    if (e instanceof Error && (e.message.includes("No uncommitted changes") || e.message.includes("No diff found"))) {
-      return {
-        response: e.message,
-        diffSource: base ? "branch" : "uncommitted",
-        base,
-        mode: "quick",
-        timedOut: false,
-        resolvedCwd: cwd,
-        ...meta,
-      };
-    }
-    throw e;
-  }
-
-  const fullPrompt = buildQuickPrompt(diff, focus, maxResponseLength);
-
-  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
-    model,
-    (m, t) => {
-      const args: string[] = [];
-      if (m) args.push("--model", m);
-      args.push("--output-format", OUTPUT_FORMAT);
-      return spawnGemini({ args, cwd, stdin: fullPrompt, timeout: t });
-    },
-    timeout,
-  );
-
-  const actualModel = fallbackUsed ? fallbackModel : model;
-
-  if (result.timedOut) {
-    const partial = tryParsePartial(result.stdout, result.stderr, timeout);
-    return {
-      response: partial.text,
-      diffSource,
-      base,
-      mode: "quick",
-      model: actualModel,
-      fallbackUsed: fallbackUsed || undefined,
-      timedOut: true,
-      resolvedCwd: cwd,
-      ...meta,
-    };
-  }
-
-  checkErrorPatterns(result.exitCode, result.stderr);
-
-  const parsed = parseStreamJson(result.stdout, result.stderr);
-
-  return {
-    response: parsed.response,
-    diffSource,
-    base,
-    mode: "quick",
-    model: actualModel,
-    fallbackUsed: fallbackUsed || undefined,
-    timedOut: false,
-    resolvedCwd: cwd,
-    ...meta,
-  };
 }
