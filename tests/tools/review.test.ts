@@ -126,9 +126,19 @@ describe("buildFocusedPrompt", () => {
     expect(result).toContain("Pay special attention to: security");
   });
 
+  it("omits focus when not provided", () => {
+    const result = buildFocusedPrompt("some diff");
+    expect(result).not.toContain("Pay special attention to");
+  });
+
   it("includes length limit when maxResponseLength is set", () => {
     const result = buildFocusedPrompt("some diff", undefined, 800);
     expect(result).toContain("Keep your response under 800 words");
+  });
+
+  it("omits length limit when maxResponseLength is not set", () => {
+    const result = buildFocusedPrompt("some diff");
+    expect(result).not.toContain("Keep your response under");
   });
 });
 

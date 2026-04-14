@@ -143,6 +143,30 @@ describe("MCP server wiring", () => {
     expect(text).toContain("Mode: scan");
   });
 
+  it("review tool accepts the depth parameter and reports the resolved depth", async () => {
+    mockReview.mockResolvedValue({
+      response: "Focused review output.",
+      diffSource: "uncommitted",
+      mode: "focused",
+      timedOut: false,
+      resolvedCwd: "/tmp/repo",
+      appliedTimeout: 195_000,
+      timeoutScaled: true,
+      diffStat: { files: 5, insertions: 20, deletions: 4 },
+    });
+
+    const result = await client.callTool({
+      name: "review",
+      arguments: { depth: "focused" },
+    });
+
+    expect(mockReview).toHaveBeenCalledWith(expect.objectContaining({ depth: "focused" }));
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("Focused review output.");
+    expect(text).toContain("Mode: focused");
+    expect(text).toContain("scaled for 5-file diff");
+  });
+
   describe("progress notifications", () => {
     beforeEach(() => {
       vi.useFakeTimers();

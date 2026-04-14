@@ -98,7 +98,7 @@ Constant **180s**, independent of diff size. Diff-only, single-pass, no repo exp
 | 10 | 270s |
 | 12+ | 300s (cap) |
 
-Plan mode: Gemini reads changed files but cannot shell out. Prompt-constrained to the diff footprint.
+Plan mode: Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Scope is **prompt-guided, not CLI-enforced** — Gemini could technically read any non-gitignored file in the repo, so containment to the diff footprint relies on the prompt instruction plus the reduced tool surface.
 
 ### deep (generous, hard-capped)
 

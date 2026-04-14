@@ -97,6 +97,10 @@ export function scaleTimeoutForDepth(depth: ReviewDepth, stat: DiffStat): number
       return Math.min(FOCUSED_BASE_MS + FOCUSED_PER_FILE_MS * stat.files, FOCUSED_CAP_MS);
     case "deep":
       return Math.min(DEEP_BASE_MS + DEEP_PER_FILE_MS * stat.files, HARD_TIMEOUT_CAP);
+    default: {
+      const _exhaustive: never = depth;
+      throw new Error(`Unknown review depth: ${_exhaustive as string}`);
+    }
   }
 }
 
@@ -109,6 +113,10 @@ export function defaultTimeoutForDepth(depth: ReviewDepth): number {
       return FOCUSED_FALLBACK_TIMEOUT;
     case "deep":
       return AGENTIC_TIMEOUT;
+    default: {
+      const _exhaustive: never = depth;
+      throw new Error(`Unknown review depth: ${_exhaustive as string}`);
+    }
   }
 }
 
