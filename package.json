@@ -2,7 +2,7 @@
   "name": "gemini-mcp-bridge",
   "version": "0.3.0",
   "description": "MCP server that wraps Gemini CLI for query, code review, and health checks",
-  "author": "Tim Birrell",
+  "author": "hampsterx",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
