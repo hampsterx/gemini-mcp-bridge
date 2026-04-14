@@ -88,6 +88,7 @@ Add to your MCP settings:
 |------|-------------|
 | **query** | Agentic prompt with optional file context. Gemini runs inside your repo with read/grep/glob tools. Supports text and images. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
+| **assess** | Zero-cost diff analysis pre-flight. Classifies complexity and recommends a `review` depth. No CLI spawn. |
 | **review** | Repo-aware code review at three depths: `scan` (diff-only), `focused` (reads changed files), `deep` (full agentic exploration). |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
@@ -97,6 +98,12 @@ Add to your MCP settings:
 Send a prompt with optional file paths as hints. Gemini reads the files itself and can explore surrounding code for context. Text queries run under `--approval-mode plan` (read-only agentic). Image queries use `--yolo` for native pixel access.
 
 Key parameters: `prompt` (required), `files` (text or images), `model`, `workingDirectory`, `timeout` (default 120s, max 1800s).
+
+### assess
+
+Runs `git diff --numstat` and `--name-only` locally and returns diff stats, changed file list, complexity (trivial/moderate/complex), and a suggested `review` depth with estimated wall-clock time. No CLI spawn, no model call, returns in under 2 seconds.
+
+Key parameters: `uncommitted` (default true), `base`, `workingDirectory`.
 
 ### review
 

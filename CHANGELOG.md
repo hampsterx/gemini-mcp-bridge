@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-14
+
 ### Added
+- **`assess` tool**: zero-cost diff analysis pre-flight. Runs `git diff --numstat` and `--name-only` locally (no CLI spawn, no model call) and returns diff stats, changed file list, complexity classification (trivial/moderate/complex), and suggestions for which review depth to use with estimated wall-clock times. Use before `review` to set timeout expectations. Cross-cutting detection uses top-level directory count (3+ distinct dirs = complex).
 - **`depth` parameter on `review`**: three tiers replace the binary quick/agentic split.
   - `scan`: diff-only, single-pass, no repo exploration. Constant 180s timeout.
   - `focused`: diff + CLI reads changed files in plan mode (no shell). Timeout scales `120s + 15s * files`, capped at 300s; falls back to 240s when diff stat is unavailable.
