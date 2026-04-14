@@ -88,7 +88,7 @@ Add to your MCP settings:
 |------|-------------|
 | **query** | Agentic prompt with optional file context. Gemini runs inside your repo with read/grep/glob tools. Supports text and images. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
-| **review** | Agentic code review. Gemini diffs, reads files, follows imports, checks tests. Quick diff-only mode available. |
+| **review** | Repo-aware code review at three depths: `scan` (diff-only), `focused` (reads changed files), `deep` (full agentic exploration). |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
 
@@ -100,11 +100,15 @@ Key parameters: `prompt` (required), `files` (text or images), `model`, `working
 
 ### review
 
-Two modes:
-- **Agentic** (default): Gemini runs inside the repo, diffs the code, reads files, follows imports, and checks tests. Timeout auto-scales from diff size (180s baseline + 30s per changed file, capped at 1800s).
-- **Quick** (`quick: true`): Diff-only review, no repo exploration. Faster but less context.
+Three depth tiers, selectable via the `depth` parameter. Use the `assess` tool first for a recommendation.
 
-Key parameters: `uncommitted` (default true), `base`, `focus`, `quick`, `workingDirectory`, `timeout`.
+- **scan**: diff-only, single-pass, no repo exploration. Constant 180s timeout. Good for sanity checks and small diffs.
+- **focused**: pre-computed diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Timeout `120s + 15s * files` (cap 300s; 240s fallback). Good for light-to-moderate reviews.
+- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). Deepest.
+
+The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
+
+Key parameters: `uncommitted` (default true), `base`, `focus`, `depth`, `workingDirectory`, `timeout`, `maxResponseLength`.
 
 ### search
 
@@ -152,8 +156,9 @@ Each invocation spawns a fresh CLI process with ~15-20s cold start (large depend
 | Scenario | Typical time |
 |----------|-------------|
 | Minimal query | 17-25s |
-| Quick code review (small diff) | 35-50s |
-| Agentic review (explores repo) | 60s to 20 min |
+| Scan review (diff-only) | 35-50s |
+| Focused review (reads changed files) | 60-180s |
+| Deep review (explores repo) | 60s to 30 min |
 | Web search + synthesis | 35-60s |
 
 Setting `GEMINI_DEFAULT_MODEL` avoids the CLI's internal model routing step (~1-2s savings per call).

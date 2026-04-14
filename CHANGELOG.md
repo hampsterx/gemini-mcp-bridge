@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`depth` parameter on `review`**: three tiers replace the binary quick/agentic split.
+  - `scan`: diff-only, single-pass, no repo exploration. Constant 180s timeout.
+  - `focused`: diff + CLI reads changed files in plan mode (no shell). Timeout scales `120s + 15s * files`, capped at 300s; falls back to 240s when diff stat is unavailable.
+  - `deep` (default): full agentic exploration with `--yolo`. Timeout now scales `240s + 45s * files` (was `180s + 30s * files`), capped at 1800s; fallback 600s.
+- **`buildFocusedPrompt` / `prompts/review-focused.md`**: new prompt template for focused reviews. Instructs the CLI to read changed files only and acknowledges that some changed files may be unreadable (deleted, renamed-away, binary, generated, gitignored).
+- **`scaleTimeoutForDepth`, `defaultTimeoutForDepth`, `resolveDepth`**: new exports on `src/tools/review.ts` for per-depth timeout and input resolution.
+
+### Changed
+- **`ReviewResult.mode` values**: `"agentic" | "quick"` → `"scan" | "focused" | "deep"`. Breaking for callers inspecting `result.mode`. Pre-1.0 so a minor bump covers this mechanically, but call it out: anyone checking `result.mode === "quick"` or `=== "agentic"` needs to update to the new values.
+- **Deep (previously agentic) timeout scaling**: per-file budget raised from 30s to 45s and base from 180s to 240s. A 10-file diff goes from 480s to 690s. The user explicitly picked `deep`, so don't cut it short.
+- **Partial response hint**: timeout annotations now read `consider depth: "scan" or narrow the base` (was `consider quick: true or narrow the base`). Scan timeouts are no longer annotated — no shallower alternative exists.
+- **Tool description on `review`**: rewritten to explain the three depths and new timeout formulas.
+
+### Deprecated
+- **`quick` parameter on `review`**: superseded by `depth`. Still works for backwards compatibility: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
+
+### Note
+- Focused mode containment is **prompt-driven, not CLI-enforced**. Plan mode removes shell access but does not scope `read_file` / `grep_search` / `list_directory` to the changed files. Gemini could still read any non-gitignored file in the repo — the containment relies on the prompt instruction "Do NOT explore beyond the changed files" plus the reduced tool surface.
+
 ## [0.3.0] - 2026-04-12
 
 ### Changed
