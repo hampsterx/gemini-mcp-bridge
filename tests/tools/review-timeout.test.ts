@@ -514,4 +514,43 @@ describe("executeReview timeout wiring", () => {
       }
     }
   });
+
+  it("depth: deep returns structured capacity metadata without fallback retry", async () => {
+    await stageFiles(tmpDir, 2);
+    const savedFallback = process.env["GEMINI_FALLBACK_MODEL"];
+    process.env["GEMINI_FALLBACK_MODEL"] = "gemini-2.5-flash";
+
+    try {
+      mockSpawn.mockReset();
+      mockSpawn.mockResolvedValue({
+        stdout: "",
+        stderr: "503 Service Unavailable",
+        exitCode: 1,
+        timedOut: false,
+      });
+
+      const result = await executeReview({
+        workingDirectory: tmpDir,
+        depth: "deep",
+        model: "gemini-2.5-pro",
+      });
+
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(result.fallbackUsed).toBeUndefined();
+      expect(result.capacityFailure).toEqual({
+        kind: "service_unavailable",
+        statusCode: 503,
+        message: "503 Service Unavailable",
+      });
+      expect(result.response).toContain("could not be completed");
+      expect(result.response).toContain("No internal retry or fallback was attempted");
+      expect(result.mode).toBe("deep");
+    } finally {
+      if (savedFallback !== undefined) {
+        process.env["GEMINI_FALLBACK_MODEL"] = savedFallback;
+      } else {
+        delete process.env["GEMINI_FALLBACK_MODEL"];
+      }
+    }
+  });
 });

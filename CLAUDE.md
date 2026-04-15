@@ -32,7 +32,7 @@ We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` t
 
 ### Assess Tool Details
 
-Runs `git diff --numstat` and `--name-only` locally (no CLI spawn, no model call). Returns diff stats, changed file list, complexity classification (trivial/moderate/complex), and suggestions for which review depth to use with estimated wall-clock times. Use before `review` to set timeout expectations.
+Runs `git diff --numstat` and `--name-only` locally (no CLI spawn, no model call). Returns diff stats, changed file list, complexity classification (trivial/moderate/complex), change kind (`empty` / `code` / `mixed` / `non-code` / `generated`), guidance, and suggestions for which review depth to use with estimated wall-clock times. Use before `review` to set timeout expectations.
 
 ### Query Tool Details
 
@@ -57,7 +57,7 @@ The `review` tool has three depth tiers, selectable via the `depth` parameter:
 
 - **scan**: Sends only the diff text. Single-pass, no repo exploration. Constant 180s timeout. Fastest, shallowest.
 - **focused**: Pre-computes the diff and inlines it. CLI spawns in plan mode (no `--yolo`) so Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Prompt instructs Gemini to read changed files for context but NOT trace imports, check tests, or explore the wider repo. Timeout: `120s + 15s * files`, capped at 300s; 240s fallback when diff stat unavailable. Containment is **prompt-driven, not CLI-enforced**: plan mode removes shell access but does not scope reads to changed files.
-- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback.
+- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
 
 The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
 
@@ -128,6 +128,7 @@ Implications:
 - Use `-p` flag for short prompts only
 - Kill process group on timeout: SIGTERM -> 5s grace -> SIGKILL
 - Max 3 concurrent spawns, queue excess (FIFO, 30s queue timeout)
+- Optional pacing via `GEMINI_MIN_INVOCATION_GAP_MS` and startup jitter via `GEMINI_SPAWN_JITTER_MAX_MS`
 
 ### Output Parsing
 - Uses `--output-format stream-json` (NDJSON to stdout) for progressive capture

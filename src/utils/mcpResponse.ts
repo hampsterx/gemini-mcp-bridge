@@ -12,6 +12,7 @@ export interface FormatTextResponseOptions {
   metaLines?: string[];
   responseMeta: ResponseMeta;
   enableChunking?: boolean;
+  extraMeta?: Record<string, unknown>;
 }
 
 function appendMetaLines(text: string, metaLines?: string[]): string {
@@ -71,6 +72,7 @@ export function formatTextResponse(options: FormatTextResponseOptions) {
         chunkCacheKey: chunkMeta.chunkCacheKey,
         chunkIndex: chunkMeta.chunkIndex,
         totalChunks: chunkMeta.totalChunks,
+        ...(options.extraMeta ?? {}),
       },
     }],
   };

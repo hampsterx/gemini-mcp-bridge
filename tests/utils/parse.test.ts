@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseGeminiOutput, extractJson, parseStreamJson, tryParsePartial } from "../../src/utils/parse.js";
+import {
+  parseGeminiOutput,
+  extractJson,
+  parseStreamJson,
+  tryParsePartial,
+  extractCapacityFailure,
+} from "../../src/utils/parse.js";
 
 describe("parseGeminiOutput", () => {
   it("parses JSON with response field from stdout", () => {
@@ -235,5 +241,56 @@ describe("tryParsePartial", () => {
     const result = tryParsePartial("", "", 25_000);
     expect(result.text).toContain("Timed out after 25s with no response");
     expect(result.eventCount).toBe(0);
+  });
+});
+
+describe("extractCapacityFailure", () => {
+  it("detects free-text rate limit errors", () => {
+    expect(extractCapacityFailure("HTTP 429: rate limit exceeded")).toEqual({
+      kind: "rate_limit",
+      statusCode: 429,
+      message: "HTTP 429: rate limit exceeded",
+    });
+  });
+
+  it("detects service unavailable errors", () => {
+    expect(extractCapacityFailure("503 Service Unavailable")).toEqual({
+      kind: "service_unavailable",
+      statusCode: 503,
+      message: "503 Service Unavailable",
+    });
+  });
+
+  it("extracts structured JSON message for resource exhausted", () => {
+    const stderr = JSON.stringify({
+      error: {
+        code: "RESOURCE_EXHAUSTED",
+        message: "quota bucket empty",
+      },
+    });
+
+    expect(extractCapacityFailure(stderr)).toEqual({
+      kind: "resource_exhausted",
+      message: "quota bucket empty",
+    });
+  });
+
+  it("returns null for unrelated errors", () => {
+    expect(extractCapacityFailure("Authentication failed")).toBeNull();
+  });
+
+  it("does not classify generic 'unavailable' text as a capacity failure", () => {
+    expect(extractCapacityFailure("Requested tool is unavailable in this environment")).toBeNull();
+  });
+
+  it("does not classify generic quota setup text as exhaustion", () => {
+    expect(extractCapacityFailure("quota project not set")).toBeNull();
+  });
+
+  it("classifies explicit quota exceeded text", () => {
+    expect(extractCapacityFailure("quota exceeded for this account")).toEqual({
+      kind: "quota",
+      message: "quota exceeded for this account",
+    });
   });
 });

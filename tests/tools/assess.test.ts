@@ -6,6 +6,8 @@ import os from "node:os";
 import type { DiffStat } from "../../src/utils/git.js";
 import {
   classifyComplexity,
+  classifyDiffKind,
+  buildGuidance,
   buildSuggestions,
   executeAssess,
 } from "../../src/tools/assess.js";
@@ -69,13 +71,45 @@ describe("classifyComplexity", () => {
   });
 });
 
+describe("classifyDiffKind", () => {
+  it("returns empty for no files", () => {
+    expect(classifyDiffKind([])).toBe("empty");
+  });
+
+  it("returns generated for lockfile-only churn", () => {
+    expect(classifyDiffKind(["package-lock.json", "pnpm-lock.yaml"])).toBe("generated");
+  });
+
+  it("returns code for code-only changes", () => {
+    expect(classifyDiffKind(["src/app.ts", "tests/app.test.ts"])).toBe("code");
+  });
+
+  it("returns non-code for docs and config only", () => {
+    expect(classifyDiffKind(["README.md", ".github/workflows/ci.yml"])).toBe("non-code");
+  });
+
+  it("returns mixed when code and docs/config are both present", () => {
+    expect(classifyDiffKind(["src/app.ts", "README.md"])).toBe("mixed");
+  });
+});
+
+describe("buildGuidance", () => {
+  it("does not recommend skipping review for non-code changes", () => {
+    expect(buildGuidance("non-code")).toContain("can still carry correctness risk");
+  });
+
+  it("reserves low-signal guidance for generated churn", () => {
+    expect(buildGuidance("generated")).toContain("Generated churn detected");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // buildSuggestions
 // ---------------------------------------------------------------------------
 
 describe("buildSuggestions", () => {
   it("returns three suggestions: scan, focused, deep", () => {
-    const suggestions = buildSuggestions({ files: 5, insertions: 100, deletions: 50 });
+    const suggestions = buildSuggestions({ files: 5, insertions: 100, deletions: 50 }, "code");
     expect(suggestions).toHaveLength(3);
     expect(suggestions[0].depth).toBe("scan");
     expect(suggestions[1].depth).toBe("focused");
@@ -83,32 +117,38 @@ describe("buildSuggestions", () => {
   });
 
   it("scan estimate is fixed at 30s regardless of diff size", () => {
-    expect(buildSuggestions({ files: 0, insertions: 0, deletions: 0 })[0].estimatedSeconds).toBe(30);
-    expect(buildSuggestions({ files: 50, insertions: 1000, deletions: 500 })[0].estimatedSeconds).toBe(30);
+    expect(buildSuggestions({ files: 0, insertions: 0, deletions: 0 }, "empty")[0].estimatedSeconds).toBe(30);
+    expect(buildSuggestions({ files: 50, insertions: 1000, deletions: 500 }, "code")[0].estimatedSeconds).toBe(30);
   });
 
   it("focused estimate scales with file count", () => {
-    expect(buildSuggestions({ files: 1, insertions: 0, deletions: 0 })[1].estimatedSeconds).toBe(40);
-    expect(buildSuggestions({ files: 5, insertions: 0, deletions: 0 })[1].estimatedSeconds).toBe(80);
+    expect(buildSuggestions({ files: 1, insertions: 0, deletions: 0 }, "code")[1].estimatedSeconds).toBe(40);
+    expect(buildSuggestions({ files: 5, insertions: 0, deletions: 0 }, "code")[1].estimatedSeconds).toBe(80);
   });
 
   it("focused estimate caps at 240s", () => {
-    expect(buildSuggestions({ files: 100, insertions: 0, deletions: 0 })[1].estimatedSeconds).toBe(240);
+    expect(buildSuggestions({ files: 100, insertions: 0, deletions: 0 }, "code")[1].estimatedSeconds).toBe(240);
   });
 
   it("deep estimate scales with file count", () => {
-    expect(buildSuggestions({ files: 1, insertions: 0, deletions: 0 })[2].estimatedSeconds).toBe(85);
-    expect(buildSuggestions({ files: 5, insertions: 0, deletions: 0 })[2].estimatedSeconds).toBe(185);
+    expect(buildSuggestions({ files: 1, insertions: 0, deletions: 0 }, "code")[2].estimatedSeconds).toBe(85);
+    expect(buildSuggestions({ files: 5, insertions: 0, deletions: 0 }, "code")[2].estimatedSeconds).toBe(185);
   });
 
   it("deep estimate caps at 1200s", () => {
-    expect(buildSuggestions({ files: 100, insertions: 0, deletions: 0 })[2].estimatedSeconds).toBe(1200);
+    expect(buildSuggestions({ files: 100, insertions: 0, deletions: 0 }, "code")[2].estimatedSeconds).toBe(1200);
   });
 
   it("all suggestions have non-empty descriptions", () => {
-    for (const s of buildSuggestions({ files: 3, insertions: 50, deletions: 10 })) {
+    for (const s of buildSuggestions({ files: 3, insertions: 50, deletions: 10 }, "mixed")) {
       expect(s.description.length).toBeGreaterThan(0);
     }
+  });
+
+  it("generated diffs do not say review is unnecessary", () => {
+    const suggestions = buildSuggestions({ files: 2, insertions: 10, deletions: 5 }, "generated");
+    expect(suggestions[2].description).toContain("Usually unnecessary");
+    expect(suggestions[1].description).not.toContain("No review recommended");
   });
 });
 
@@ -148,9 +188,11 @@ describe("executeAssess", () => {
     const result = await executeAssess({ workingDirectory: tmpDir });
 
     expect(result.complexity).toBe("trivial");
+    expect(result.diffKind).toBe("non-code");
     expect(result.diffStat.files).toBe(1);
     expect(result.changedFiles).toContain("file.txt");
     expect(result.suggestions).toHaveLength(3);
+    expect(result.guidance).toContain("Non-code changes");
     expect(result.resolvedCwd).toBeTruthy();
   });
 
@@ -163,6 +205,7 @@ describe("executeAssess", () => {
     const result = await executeAssess({ workingDirectory: tmpDir });
 
     expect(result.complexity).toBe("moderate");
+    expect(result.diffKind).toBe("non-code");
     expect(result.diffStat.files).toBe(4);
     expect(result.changedFiles).toHaveLength(4);
   });
@@ -178,6 +221,7 @@ describe("executeAssess", () => {
     const result = await executeAssess({ workingDirectory: tmpDir });
 
     expect(result.complexity).toBe("complex");
+    expect(result.diffKind).toBe("mixed");
     expect(result.changedFiles).toHaveLength(3);
   });
 
@@ -195,6 +239,7 @@ describe("executeAssess", () => {
 
     expect(result.diffStat.files).toBe(1);
     expect(result.changedFiles).toContain("new.txt");
+    expect(result.diffKind).toBe("non-code");
   });
 
   it("returns trivial with empty stats when no changes", async () => {
@@ -202,6 +247,7 @@ describe("executeAssess", () => {
     const result = await executeAssess({ workingDirectory: tmpDir });
 
     expect(result.complexity).toBe("trivial");
+    expect(result.diffKind).toBe("empty");
     expect(result.diffStat.files).toBe(0);
     expect(result.changedFiles).toHaveLength(0);
   });
@@ -224,5 +270,15 @@ describe("executeAssess", () => {
     // Should resolve to git root, not the subdirectory
     expect(result.resolvedCwd).not.toContain("sub");
     expect(result.changedFiles).toContain("sub/file.txt");
+  });
+
+  it("classifies lockfile-only churn as generated", async () => {
+    await writeFile(path.join(tmpDir, "package-lock.json"), "{\n  \"lockfileVersion\": 3\n}\n");
+    execFileSync("git", ["-C", tmpDir, "add", "package-lock.json"], { stdio: "pipe" });
+
+    const result = await executeAssess({ workingDirectory: tmpDir });
+
+    expect(result.diffKind).toBe("generated");
+    expect(result.guidance).toContain("Generated churn detected");
   });
 });

@@ -245,6 +245,93 @@ export interface PartialParseResult {
   eventCount: number;
 }
 
+export interface CapacityFailure {
+  kind: "rate_limit" | "service_unavailable" | "quota" | "resource_exhausted";
+  statusCode?: 429 | 503;
+  message: string;
+}
+
+function cleanErrorText(stderr: string): string {
+  return stripAnsi(stderr).trim();
+}
+
+function normalizeCapacityMessage(text: string): string {
+  const singleLine = text.replace(/\s+/g, " ").trim();
+  return singleLine.length > 240 ? `${singleLine.slice(0, 237)}...` : singleLine;
+}
+
+/**
+ * Parse Gemini stderr and classify recognized capacity-related failures.
+ *
+ * Supports structured JSON payloads such as `{ error: { code, status, message } }`
+ * as well as plain-text stderr containing explicit 429 / 503 / rate-limit /
+ * service-unavailable / quota-exceeded signals.
+ *
+ * @param stderr Raw stderr text from the Gemini CLI subprocess.
+ * @returns A normalized `CapacityFailure` when a known capacity pattern is
+ * detected, otherwise `null`.
+ */
+export function extractCapacityFailure(stderr: string): CapacityFailure | null {
+  const cleaned = cleanErrorText(stderr);
+  if (!cleaned) return null;
+
+  try {
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const error = (parsed.error ?? parsed) as Record<string, unknown>;
+    const code = String(error.code ?? "").toUpperCase();
+    const status = String(error.status ?? "").toUpperCase();
+    const detail = normalizeCapacityMessage(
+      String(error.message ?? error.details ?? cleaned),
+    );
+
+    if (code === "503" || status === "503" || status === "UNAVAILABLE") {
+      return { kind: "service_unavailable", statusCode: 503, message: detail };
+    }
+    if (code === "RESOURCE_EXHAUSTED" || status === "RESOURCE_EXHAUSTED") {
+      return { kind: "resource_exhausted", message: detail };
+    }
+    if (code === "QUOTA_EXCEEDED" || status === "QUOTA_EXCEEDED") {
+      return { kind: "quota", message: detail };
+    }
+    if (code === "429" || status === "429") {
+      return { kind: "rate_limit", statusCode: 429, message: detail };
+    }
+  } catch {
+    // Non-JSON stderr, fall through to free-text heuristics.
+  }
+
+  const lower = cleaned.toLowerCase();
+  const message = normalizeCapacityMessage(cleaned);
+
+  if (
+    lower.includes("503")
+    || lower.includes("service unavailable")
+  ) {
+    return { kind: "service_unavailable", statusCode: 503, message };
+  }
+
+  if (lower.includes("resource_exhausted")) {
+    return { kind: "resource_exhausted", message };
+  }
+
+  if (
+    /quota\s+exceed(?:ed|s)?/i.test(cleaned)
+    || /exceed(?:ed|s)?\s+quota/i.test(cleaned)
+  ) {
+    return { kind: "quota", message };
+  }
+
+  if (
+    lower.includes("rate limit")
+    || lower.includes("too many requests")
+    || lower.includes("429")
+  ) {
+    return { kind: "rate_limit", statusCode: 429, message };
+  }
+
+  return null;
+}
+
 /**
  * Try to extract partial response from stream-json stdout on timeout.
  * Returns the partial content prefixed with a timeout note, or a
