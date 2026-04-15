@@ -40,6 +40,7 @@ gemini -p "Is this approach sound for handling retries?"
 - You need concurrency management (max 3 parallel spawns, FIFO queue)
 - You need partial response capture on timeout (NDJSON streaming) and automatic model fallback on quota errors
 - You need response length controls (`maxResponseLength` parameter)
+- You need oversized query/review/search responses paginated safely instead of getting truncated by MCP client limits
 - You want subprocess isolation: env allowlist, path sandboxing, no shell escape
 
 ## Quick Start
@@ -95,6 +96,7 @@ Add to your MCP settings:
 | **review** | Repo-aware code review at three depths: `scan` (diff-only), `focused` (reads changed files), `deep` (full agentic exploration). |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
+| **fetch-chunk** | Retrieve later segments from a chunked `query`, `review`, or `search` response using its `cacheKey`. |
 
 ### query
 
@@ -125,6 +127,8 @@ Key parameters: `uncommitted` (default true), `base`, `focus`, `depth`, `working
 Google Search grounded query. Spawns Gemini CLI in agentic mode with `google_web_search`, then synthesizes an answer with source URLs.
 
 Key parameters: `query` (required), `model`, `workingDirectory`, `timeout`.
+
+Large `query`, `review`, and `search` responses are automatically chunked when they exceed the bridge threshold. The first chunk includes a `cacheKey` and chunk count in `_meta` and the response footer. Use `fetch-chunk` with that `cacheKey` and a 1-based `chunkIndex` to retrieve later segments within the 10-minute in-memory cache window.
 
 ### structured
 
