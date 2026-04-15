@@ -378,6 +378,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
             body: result.valid
               ? result.response
               : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
+            metaLines: result.valid ? meta : undefined,
             enableChunking: false,
             responseMeta: {
               model: result.model ?? null,
@@ -413,6 +414,10 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
         .int()
         .positive()
         .describe("1-based chunk index to retrieve. Use 2 for the next segment after the initial response."),
+      workingDirectory: z
+        .string()
+        .optional()
+        .describe("Unused for now. Accepted for tool contract consistency with the other bridge tools."),
     },
     {
       title: "Fetch Cached Chunk",

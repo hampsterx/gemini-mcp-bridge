@@ -8,13 +8,9 @@ export interface CachedChunkSet {
   lastAccessedAt: number;
 }
 
-export interface ChunkedTextResult {
-  chunked: boolean;
-  text: string;
-  cacheKey?: string;
-  chunkIndex?: number;
-  totalChunks?: number;
-}
+export type ChunkedTextResult =
+  | { chunked: false; text: string }
+  | { chunked: true; text: string; cacheKey: string; chunkIndex: number; totalChunks: number };
 
 export const CHUNK_CACHE_TTL_MS = 10 * 60 * 1000;
 export const CHUNK_CACHE_MAX_ENTRIES = 50;
@@ -78,7 +74,23 @@ class ChunkCache {
 
 export const chunkCache = new ChunkCache();
 
+/**
+ * Split text into bounded chunks, preferring paragraph, line, then word boundaries.
+ *
+ * Uses `DEFAULT_CHUNK_SIZE` unless an explicit positive integer `chunkSize` is
+ * provided. The splitter prefers `\n\n`, then `\n`, then space within the last
+ * 40% of the target window. If no suitable boundary is found, it falls back to a
+ * hard split at the validated chunk size.
+ *
+ * @param text Text to split into chunk-sized segments.
+ * @param chunkSize Maximum size of each chunk. Must be a positive integer.
+ * @returns Ordered chunk strings whose concatenation matches the original text.
+ */
 export function splitIntoChunks(text: string, chunkSize = DEFAULT_CHUNK_SIZE): string[] {
+  if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
+    throw new Error(`Invalid chunkSize ${chunkSize}. Use a positive integer such as ${DEFAULT_CHUNK_SIZE}.`);
+  }
+
   if (text.length <= chunkSize) {
     return [text];
   }
@@ -120,6 +132,19 @@ export function splitIntoChunks(text: string, chunkSize = DEFAULT_CHUNK_SIZE): s
   return chunks;
 }
 
+/**
+ * Return the original text when below threshold, otherwise cache all chunks and
+ * return chunk 1 plus retrieval metadata.
+ *
+ * Uses `DEFAULT_CHUNK_THRESHOLD` and `DEFAULT_CHUNK_SIZE` when options are
+ * omitted. When chunking occurs, all chunks are stored in `chunkCache` and the
+ * returned `ChunkedTextResult` includes the cache key, 1-based chunk index, and
+ * total chunk count.
+ *
+ * @param text Response body to inspect for chunking.
+ * @param options Optional threshold and chunk size overrides.
+ * @returns Either the unmodified text or the first cached chunk with metadata.
+ */
 export function maybeChunkText(
   text: string,
   options?: { threshold?: number; chunkSize?: number },

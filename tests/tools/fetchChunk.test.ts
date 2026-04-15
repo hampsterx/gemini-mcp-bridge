@@ -25,12 +25,12 @@ describe("executeFetchChunk", () => {
 
     await expect(
       executeFetchChunk({ cacheKey: seeded.cacheKey!, chunkIndex: 0 }),
-    ).rejects.toThrow("positive integer");
+    ).rejects.toThrow("Invalid chunkIndex");
   });
 
   it("rejects missing cache keys", async () => {
     await expect(
       executeFetchChunk({ cacheKey: "missing", chunkIndex: 1 }),
-    ).rejects.toThrow("not found or expired");
+    ).rejects.toThrow("Re-run query, review, or search");
   });
 });

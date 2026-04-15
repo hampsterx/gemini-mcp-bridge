@@ -73,4 +73,9 @@ describe("chunkCache", () => {
     expect(chunks.join("")).toBe(text);
     expect(chunks[0].endsWith("\n\n")).toBe(true);
   });
+
+  it("rejects invalid chunk sizes", () => {
+    expect(() => splitIntoChunks("abc", 0)).toThrow("Invalid chunkSize");
+    expect(() => splitIntoChunks("abc", -1)).toThrow("Invalid chunkSize");
+  });
 });
