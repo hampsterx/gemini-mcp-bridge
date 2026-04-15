@@ -7,6 +7,8 @@ import { executeReview } from "./tools/review.js";
 import { executeSearch } from "./tools/search.js";
 import { executePing } from "./tools/ping.js";
 import { executeStructured } from "./tools/structured.js";
+import { executeFetchChunk } from "./tools/fetchChunk.js";
+import { formatTextResponse } from "./utils/mcpResponse.js";
 import { maybeStartHeartbeat, type ProgressNotificationSender } from "./utils/progress.js";
 
 const require = createRequire(import.meta.url);
@@ -94,21 +96,16 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
           meta.push(`Model: ${result.model}`);
         }
 
-        const text = meta.length > 0
-          ? `${result.response}\n\n---\n${meta.join("\n")}`
-          : result.response;
-
-        return {
-          content: [{
-            type: "text" as const,
-            text,
-            _meta: {
-              model: result.model ?? null,
-              durationMs,
-              partial: result.timedOut,
-            },
-          }],
-        };
+        return formatTextResponse({
+          body: result.response,
+          metaLines: meta,
+          enableChunking: true,
+          responseMeta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
+        });
       } catch (e) {
         const durationMs = Math.round(performance.now() - startMs);
         return {
@@ -219,17 +216,16 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
         if (result.fallbackUsed) meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
         if (result.timedOut) meta.push("(timed out)");
 
-        return {
-          content: [{
-            type: "text" as const,
-            text: `${result.response}\n\n---\n${meta.join("\n")}`,
-            _meta: {
-              model: result.model ?? null,
-              durationMs,
-              partial: result.timedOut,
-            },
-          }],
-        };
+        return formatTextResponse({
+          body: result.response,
+          metaLines: meta,
+          enableChunking: true,
+          responseMeta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
+        });
       } catch (e) {
         const durationMs = Math.round(performance.now() - startMs);
         return {
@@ -299,21 +295,16 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
           meta.push(`Model: ${result.model}`);
         }
 
-        const text = meta.length > 0
-          ? `${result.response}\n\n---\n${meta.join("\n")}`
-          : result.response;
-
-        return {
-          content: [{
-            type: "text" as const,
-            text,
-            _meta: {
-              model: result.model ?? null,
-              durationMs,
-              partial: result.timedOut,
-            },
-          }],
-        };
+        return formatTextResponse({
+          body: result.response,
+          metaLines: meta,
+          enableChunking: true,
+          responseMeta: {
+            model: result.model ?? null,
+            durationMs,
+            partial: result.timedOut,
+          },
+        });
       } catch (e) {
         const durationMs = Math.round(performance.now() - startMs);
         return {
@@ -383,19 +374,76 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
         meta.push(`Working directory: ${result.resolvedCwd}`);
 
         return {
-          content: [{
-            type: "text" as const,
-            text: result.valid
+          ...formatTextResponse({
+            body: result.valid
               ? result.response
               : `${result.response}\n\n---\nSchema validation failed. ${meta.join("\n")}`,
-            _meta: {
+            metaLines: result.valid ? meta : undefined,
+            enableChunking: false,
+            responseMeta: {
               model: result.model ?? null,
               durationMs,
               partial: result.timedOut,
             },
-          }],
+          }),
           isError: !result.valid,
         };
+      } catch (e) {
+        const durationMs = Math.round(performance.now() - startMs);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: ${(e as Error).message}`,
+            _meta: { durationMs, partial: false },
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // --- fetch-chunk tool ---
+
+  server.tool(
+    "fetch-chunk",
+    "Retrieve a cached chunk from a previously chunked response. Large query, review, and search responses may return only the first chunk plus a cacheKey. Use this tool with that cacheKey and a 1-based chunkIndex to fetch the remaining segments before the 10-minute in-memory cache expires.",
+    {
+      cacheKey: z.string().describe("Cache key returned in the initial chunked response."),
+      chunkIndex: z
+        .number()
+        .int()
+        .positive()
+        .describe("1-based chunk index to retrieve. Use 2 for the next segment after the initial response."),
+      workingDirectory: z
+        .string()
+        .optional()
+        .describe("Unused for now. Accepted for tool contract consistency with the other bridge tools."),
+    },
+    {
+      title: "Fetch Cached Chunk",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    async (input) => {
+      const startMs = performance.now();
+      try {
+        const result = await executeFetchChunk(input);
+        const durationMs = Math.round(performance.now() - startMs);
+        return formatTextResponse({
+          body: result.chunk,
+          metaLines: [
+            `Response chunk ${result.chunkIndex}/${result.totalChunks}`,
+            `Cache key: ${result.cacheKey}`,
+            `Expires at: ${new Date(result.expiresAt).toISOString()}`,
+          ],
+          enableChunking: false,
+          responseMeta: {
+            durationMs,
+            partial: false,
+          },
+        });
       } catch (e) {
         const durationMs = Math.round(performance.now() - startMs);
         return {
