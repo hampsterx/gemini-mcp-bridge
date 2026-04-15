@@ -14,6 +14,7 @@
  *   node scripts/smoke-test.mjs query /tmp         # query tool, /tmp
  *   node scripts/smoke-test.mjs search             # search tool
  *   node scripts/smoke-test.mjs review ~/NUI/cream # review tool against cream
+ *   node scripts/smoke-test.mjs fetch-chunk        # chunk cache round-trip
  */
 
 import { homedir } from "os";
@@ -67,8 +68,26 @@ try {
     console.log("cliFound:", result.cliFound);
     console.log("version:", result.version);
     console.log("authStatus:", result.authStatus);
+  } else if (tool === "fetch-chunk") {
+    const { maybeChunkText } = await import("../dist/utils/chunkCache.js");
+    const { executeFetchChunk } = await import("../dist/tools/fetchChunk.js");
+    const seeded = maybeChunkText("chunk-demo ".repeat(2_000), {
+      threshold: 1_000,
+      chunkSize: 4_000,
+    });
+    if (!seeded.chunked || !seeded.cacheKey) {
+      throw new Error("Failed to seed chunk cache");
+    }
+    const result = await executeFetchChunk({
+      cacheKey: seeded.cacheKey,
+      chunkIndex: 2,
+    });
+    console.log("cacheKey:", result.cacheKey);
+    console.log("chunkIndex:", result.chunkIndex);
+    console.log("totalChunks:", result.totalChunks);
+    console.log("chunk:", result.chunk.slice(0, 120) + (result.chunk.length > 120 ? "..." : ""));
   } else {
-    console.error(`Unknown tool: ${tool}. Use: query, search, review, ping`);
+    console.error(`Unknown tool: ${tool}. Use: query, search, review, ping, fetch-chunk`);
     process.exit(1);
   }
 

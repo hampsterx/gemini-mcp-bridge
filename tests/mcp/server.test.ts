@@ -24,6 +24,9 @@ vi.mock("../../src/tools/structured.js", () => ({
 vi.mock("../../src/tools/assess.js", () => ({
   executeAssess: vi.fn(),
 }));
+vi.mock("../../src/tools/fetchChunk.js", () => ({
+  executeFetchChunk: vi.fn(),
+}));
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -32,11 +35,13 @@ import { createServer } from "../../src/server.js";
 import { executeQuery } from "../../src/tools/query.js";
 import { executeReview } from "../../src/tools/review.js";
 import { executePing } from "../../src/tools/ping.js";
+import { executeFetchChunk } from "../../src/tools/fetchChunk.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const mockQuery = vi.mocked(executeQuery);
 const mockReview = vi.mocked(executeReview);
 const mockPing = vi.mocked(executePing);
+const mockFetchChunk = vi.mocked(executeFetchChunk);
 
 describe("MCP server wiring", () => {
   let client: InstanceType<typeof Client>;
@@ -61,10 +66,10 @@ describe("MCP server wiring", () => {
     await server.close();
   });
 
-  it("lists all six registered tools", async () => {
+  it("lists all seven registered tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["assess", "ping", "query", "review", "search", "structured"]);
+    expect(names).toEqual(["assess", "fetch-chunk", "ping", "query", "review", "search", "structured"]);
   });
 
   it("returns tool response with metadata footer", async () => {
@@ -100,6 +105,54 @@ describe("MCP server wiring", () => {
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("gemini CLI not found");
+  });
+
+  it("chunks oversized query responses and returns cache metadata", async () => {
+    mockQuery.mockResolvedValue({
+      response: "A".repeat(13_000),
+      timedOut: false,
+      resolvedCwd: "/tmp/test",
+      filesIncluded: [],
+      filesSkipped: [],
+      imagesIncluded: [],
+    });
+
+    const result = await client.callTool({
+      name: "query",
+      arguments: { prompt: "long output" },
+    });
+
+    const content = result.content[0] as {
+      text: string;
+      _meta?: { chunked?: boolean; chunkCacheKey?: string | null; totalChunks?: number | null };
+    };
+
+    expect(content.text).toContain("Response chunk 1/");
+    expect(content.text).toContain("Use fetch-chunk");
+    expect(content.text).toContain("Working directory: /tmp/test");
+    expect(content._meta?.chunked).toBe(true);
+    expect(content._meta?.chunkCacheKey).toBeTruthy();
+    expect(content._meta?.totalChunks).toBeGreaterThan(1);
+  });
+
+  it("fetch-chunk returns cached chunk text with metadata", async () => {
+    mockFetchChunk.mockResolvedValue({
+      chunk: "second chunk text",
+      cacheKey: "abc123",
+      chunkIndex: 2,
+      totalChunks: 3,
+      expiresAt: Date.parse("2026-04-15T12:00:00.000Z"),
+    });
+
+    const result = await client.callTool({
+      name: "fetch-chunk",
+      arguments: { cacheKey: "abc123", chunkIndex: 2 },
+    });
+
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("second chunk text");
+    expect(text).toContain("Response chunk 2/3");
+    expect(text).toContain("Cache key: abc123");
   });
 
   it("ping tool returns formatted status lines", async () => {

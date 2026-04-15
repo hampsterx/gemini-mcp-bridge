@@ -28,6 +28,7 @@ We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` t
 | `search` | Google Search grounded query via `google_web_search` | 120s |
 | `review` | Repo-aware code review at caller-chosen depth (scan/focused/deep) | Per depth: scan 180s, focused 120-300s, deep 240-1800s |
 | `ping` | Health check + CLI capability detection | 10s |
+| `fetch-chunk` | Retrieve cached follow-up chunks from oversized query/review/search responses | N/A (<1s) |
 
 ### Assess Tool Details
 
@@ -40,6 +41,15 @@ Text queries run under `--approval-mode plan` (read-only agentic). Files are pas
 ### Search Tool Details
 
 Spawns CLI in agentic mode with access to `google_web_search`. Uses a prompt template (`prompts/search.md`) that instructs Gemini to search, synthesize, and cite sources.
+
+### Response Chunking
+
+Large `query`, `review`, and `search` responses are chunked automatically to avoid MCP client payload limits. The first response includes chunk metadata plus a `cacheKey`; subsequent chunks can be retrieved with the `fetch-chunk` tool using a 1-based `chunkIndex`.
+
+- Cache is in-memory only
+- TTL: 10 minutes
+- Max entries: 50
+- `structured` responses are intentionally not chunked to avoid breaking machine-consumed JSON payloads
 
 ### Review Tool Details
 
@@ -76,6 +86,7 @@ npm run smoke -- query /path/to/repo   # query with specific workingDirectory
 npm run smoke -- review ~/NUI/cream    # review tool against another repo
 npm run smoke -- search                # search tool
 npm run smoke -- ping                  # health check
+npm run smoke -- fetch-chunk           # chunk cache round-trip
 ```
 
 From Claude Code, you can also import and call tool functions inline:

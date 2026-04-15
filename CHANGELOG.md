@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Response chunking for `query`, `review`, and `search`**: oversized text responses now return chunk 1 plus cache metadata instead of risking MCP client truncation. Cache is in-memory, 10-minute TTL, max 50 entries, with logical-boundary chunk splitting where possible.
+- **`fetch-chunk` tool**: retrieves cached follow-up chunks using `cacheKey` and a 1-based `chunkIndex`.
+- **Chunking smoke coverage**: `node scripts/smoke-test.mjs fetch-chunk` validates the cache round-trip without restarting the MCP client.
+
+### Changed
+- **Server response formatting**: prose-style tool responses now flow through a shared formatter that can append metadata and apply chunking consistently.
+- **`structured` tool left unchunked intentionally**: preserves machine-consumable JSON output instead of returning partial payloads.
+
 ## [0.4.0] - 2026-04-14
 
 ### Added
