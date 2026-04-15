@@ -134,12 +134,12 @@ Three depths:
 - focused: diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Medium (~120-300s). Good for light-to-moderate reviews.
 - deep (default): full agentic exploration with shell access. Gemini runs git itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Slowest but deepest (~180s-30min).
 
-Use the 'assess' tool first to classify diff complexity and get a depth recommendation.
+Use the 'assess' tool first to classify diff complexity, change kind, and get a depth recommendation.
 
 Latency scales with diff size on focused and deep. Timeouts:
 - scan: constant 180s.
 - focused: 120s + 15s per file, capped at 300s. Fallback 240s when diff stat unavailable.
-- deep: 240s + 45s per file, capped at 1800s (30 min). Fallback 600s when diff stat unavailable.
+- deep: 240s + 45s per file, capped at 1800s (30 min). Fallback 600s when diff stat unavailable. Capacity failures such as 429/503 are returned as structured metadata instead of triggering an internal fallback retry.
 
 A 5-file diff: scan=180s, focused=195s, deep=465s. A 15-file diff: scan=180s, focused=300s (capped), deep=915s.
 
@@ -217,6 +217,10 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
         ];
         if (result.base) meta.push(`Base: ${result.base}`);
         if (result.fallbackUsed) meta.push(`Note: ${result.model ?? "fallback model"} used after quota exhaustion on original model`);
+        if (result.capacityFailure) {
+          const code = result.capacityFailure.statusCode ? ` (${result.capacityFailure.statusCode})` : "";
+          meta.push(`Capacity failure: ${result.capacityFailure.kind}${code}`);
+        }
         if (result.timedOut) meta.push("(timed out)");
 
         return {
@@ -227,6 +231,7 @@ The diff is auto-computed. Do not pre-compute or pass the diff yourself.`,
               model: result.model ?? null,
               durationMs,
               partial: result.timedOut,
+              capacityFailure: result.capacityFailure ?? null,
             },
           }],
         };
@@ -416,7 +421,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
     "assess",
     `Zero-cost diff analysis pre-flight for the review tool. Runs git locally (no CLI spawn, no model call) and returns in <2 seconds.
 
-Returns: diff stats, changed file list, complexity classification (trivial/moderate/complex), and review depth suggestions with estimated wall-clock durations.
+Returns: diff stats, changed file list, complexity classification (trivial/moderate/complex), change kind, guidance, and review depth suggestions with estimated wall-clock durations.
 
 Complexity levels:
 - trivial: 1-2 files, <100 lines
@@ -453,7 +458,9 @@ Use this before calling 'review' to choose the right depth level and set timeout
 
         const lines = [
           `Complexity: ${result.complexity}`,
+          `Change kind: ${result.diffKind}`,
           `Files changed: ${result.diffStat.files} (+${result.diffStat.insertions} / -${result.diffStat.deletions})`,
+          `Guidance: ${result.guidance}`,
           "",
           "Changed files:",
           ...result.changedFiles.map((f) => `  ${f}`),
@@ -471,7 +478,9 @@ Use this before calling 'review' to choose the right depth level and set timeout
             _meta: {
               durationMs,
               complexity: result.complexity,
+              diffKind: result.diffKind,
               diffStat: result.diffStat,
+              guidance: result.guidance,
               suggestions: result.suggestions,
             },
           }],

@@ -37,8 +37,8 @@ gemini -p "Is this approach sound for handling retries?"
 - You want to know the cost before you pay it, `assess` classifies a diff in <2s (no spawn) and recommends a review depth with an estimated wall time
 - You need graduated review depth rather than all-or-nothing: `scan` (diff-only, ~40s), `focused` (reads changed files, 1-3min), `deep` (full agentic, up to 30min) with per-depth auto-scaled timeouts
 - You need structured output with JSON Schema validation (Gemini CLI has [no custom schema support](https://github.com/google-gemini/gemini-cli/issues/13388))
-- You need concurrency management (max 3 parallel spawns, FIFO queue)
-- You need partial response capture on timeout (NDJSON streaming) and automatic model fallback on quota errors
+- You need concurrency management (max 3 parallel spawns, FIFO queue, optional pacing/jitter between CLI starts)
+- You need partial response capture on timeout (NDJSON streaming), automatic model fallback on quota errors for most tools, and structured capacity failures for deep review
 - You need response length controls (`maxResponseLength` parameter)
 - You want subprocess isolation: env allowlist, path sandboxing, no shell escape
 
@@ -91,7 +91,7 @@ Add to your MCP settings:
 |------|-------------|
 | **query** | Agentic prompt with optional file context. Gemini runs inside your repo with read/grep/glob tools. Supports text and images. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
-| **assess** | Zero-cost diff analysis pre-flight. Classifies complexity and recommends a `review` depth. No CLI spawn. |
+| **assess** | Zero-cost diff analysis pre-flight. Classifies complexity and change kind, adds guidance, and recommends a `review` depth. No CLI spawn. |
 | **review** | Repo-aware code review at three depths: `scan` (diff-only), `focused` (reads changed files), `deep` (full agentic exploration). |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
@@ -104,7 +104,7 @@ Key parameters: `prompt` (required), `files` (text or images), `model`, `working
 
 ### assess
 
-Runs `git diff --numstat` and `--name-only` locally and returns diff stats, changed file list, complexity (trivial/moderate/complex), and a suggested `review` depth with estimated wall-clock time. No CLI spawn, no model call, returns in under 2 seconds.
+Runs `git diff --numstat` and `--name-only` locally and returns diff stats, changed file list, complexity (trivial/moderate/complex), change kind (`empty` / `code` / `mixed` / `non-code` / `generated`), guidance, and suggested `review` depths with estimated wall-clock time. No CLI spawn, no model call, returns in under 2 seconds.
 
 Key parameters: `uncommitted` (default true), `base`, `workingDirectory`.
 
@@ -114,7 +114,7 @@ Three depth tiers, selectable via the `depth` parameter. Use the `assess` tool f
 
 - **scan**: diff-only, single-pass, no repo exploration. Constant 180s timeout. Good for sanity checks and small diffs.
 - **focused**: pre-computed diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Timeout `120s + 15s * files` (cap 300s; 240s fallback). Good for light-to-moderate reviews.
-- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). Deepest.
+- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). On capacity failures such as 429/503, deep review returns structured failure metadata instead of retrying or silently downgrading. Deepest.
 
 The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
 
@@ -136,7 +136,7 @@ Key parameters: `prompt` (required), `schema` (required, JSON string), `files`, 
 
 No parameters. Returns CLI version, auth status, and server info.
 
-All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `partial` (timeout indicator). See [DESIGN.md](DESIGN.md) for details.
+All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `partial` (timeout indicator). Review may also attach `capacityFailure`; assess includes `diffKind`, `guidance`, and `suggestions`. See [DESIGN.md](DESIGN.md) for details.
 
 ## Configuration
 
@@ -146,6 +146,8 @@ All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `p
 | `GEMINI_FALLBACK_MODEL` | `gemini-2.5-flash` | Fallback on quota/rate-limit errors (`none` to disable) |
 | `GEMINI_CLI_PATH` | `gemini` | Path to CLI binary |
 | `GEMINI_MAX_CONCURRENT` | `3` | Max concurrent subprocess spawns |
+| `GEMINI_MIN_INVOCATION_GAP_MS` | `5000` | Minimum gap between Gemini CLI start times |
+| `GEMINI_SPAWN_JITTER_MAX_MS` | `200` | Random extra delay before spawn to avoid deterministic timing |
 
 Prompt templates for review, search, and structured tools live in `prompts/`. Editable when running from a local clone; bundled when running via `npx`.
 

@@ -8,6 +8,18 @@ const DEFAULT_MAX_CONCURRENT = 3;
 /** Queue timeout — how long a request waits for a slot. */
 const QUEUE_TIMEOUT = 30_000;
 
+/** Minimum delay between a completed invocation and the next spawn. */
+const MIN_INVOCATION_GAP_MS = parseInt(
+  process.env["GEMINI_MIN_INVOCATION_GAP_MS"] ?? "5000",
+  10,
+);
+
+/** Small random delay added before each spawn to avoid perfectly deterministic timing. */
+const SPAWN_JITTER_MAX_MS = parseInt(
+  process.env["GEMINI_SPAWN_JITTER_MAX_MS"] ?? "200",
+  10,
+);
+
 export interface SpawnOptions {
   args: string[];
   cwd: string;
@@ -32,6 +44,7 @@ const waitQueue: Array<{
   resolve: () => void;
   reject: (err: Error) => void;
 }> = [];
+let lastInvocationFinishedAt = 0;
 
 function acquireSlot(): Promise<void> {
   if (activeCount < maxConcurrent) {
@@ -82,10 +95,34 @@ export async function spawnGemini(options: SpawnOptions): Promise<SpawnResult> {
   await acquireSlot();
 
   try {
+    await enforceInvocationGap();
     return await doSpawn(options, timeout);
   } finally {
+    lastInvocationFinishedAt = Date.now();
     releaseSlot();
   }
+}
+
+async function enforceInvocationGap(): Promise<void> {
+  const sinceLastFinish = Date.now() - lastInvocationFinishedAt;
+  const gapDelay = Math.max(0, MIN_INVOCATION_GAP_MS - sinceLastFinish);
+  if (gapDelay > 0) {
+    await sleep(gapDelay);
+  }
+
+  const jitter = randomJitter(SPAWN_JITTER_MAX_MS);
+  if (jitter > 0) {
+    await sleep(jitter);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomJitter(maxMs: number): number {
+  if (maxMs <= 0) return 0;
+  return Math.floor(Math.random() * (maxMs + 1));
 }
 
 async function doSpawn(options: SpawnOptions, timeout: number): Promise<SpawnResult> {
@@ -201,4 +238,5 @@ function killProcessGroup(child: ChildProcess): NodeJS.Timeout | undefined {
 export function resetConcurrency(): void {
   activeCount = 0;
   waitQueue.length = 0;
+  lastInvocationFinishedAt = 0;
 }

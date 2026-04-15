@@ -167,6 +167,34 @@ describe("MCP server wiring", () => {
     expect(text).toContain("scaled for 5-file diff");
   });
 
+  it("review tool surfaces capacity failure metadata without marking the tool call as an error", async () => {
+    mockReview.mockResolvedValue({
+      response: "The requested deep review could not be completed because Gemini returned a capacity-related failure: service_unavailable (503).",
+      diffSource: "uncommitted",
+      mode: "deep",
+      timedOut: false,
+      resolvedCwd: "/tmp/repo",
+      appliedTimeout: 375_000,
+      timeoutScaled: true,
+      diffStat: { files: 3, insertions: 10, deletions: 2 },
+      capacityFailure: {
+        kind: "service_unavailable",
+        statusCode: 503,
+        message: "503 Service Unavailable",
+      },
+    });
+
+    const result = await client.callTool({
+      name: "review",
+      arguments: { depth: "deep" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("capacity-related failure");
+    expect(text).toContain("Capacity failure: service_unavailable (503)");
+  });
+
   describe("progress notifications", () => {
     beforeEach(() => {
       vi.useFakeTimers();

@@ -1,3 +1,5 @@
+import { extractCapacityFailure } from "./parse.js";
+
 /**
  * Non-throwing check: does this result look like a retryable quota/rate-limit error?
  * Used by the fallback wrapper to decide whether to retry with a different model.
@@ -5,26 +7,7 @@
  */
 export function isRetryableError(exitCode: number | null, stderr: string): boolean {
   if (exitCode === 0 || !stderr) return false;
-
-  const lower = stderr.toLowerCase();
-
-  // Free-text pattern matching
-  const textPatterns = ["rate limit", "too many requests", "429", "quota", "resource_exhausted"];
-  if (textPatterns.some((p) => lower.includes(p))) return true;
-
-  // Structured JSON matching: try to parse stderr as JSON and check error fields
-  try {
-    const parsed = JSON.parse(stderr) as Record<string, unknown>;
-    const error = (parsed.error ?? parsed) as Record<string, unknown>;
-    const code = String(error.code ?? "").toUpperCase();
-    const status = String(error.status ?? "").toUpperCase();
-    const retryableCodes = ["RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED", "429"];
-    if (retryableCodes.includes(code) || retryableCodes.includes(status)) return true;
-  } catch {
-    // Not JSON, already checked free-text above
-  }
-
-  return false;
+  return extractCapacityFailure(stderr) !== null;
 }
 
 /**
@@ -39,9 +22,10 @@ export function checkErrorPatterns(exitCode: number | null, stderr: string): voi
         `Gemini CLI authentication error. Run: gemini auth login\n\nDetails: ${stderr.trim()}`,
       );
     }
-    if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("429") || lower.includes("quota")) {
+    const capacity = extractCapacityFailure(stderr);
+    if (capacity) {
       throw new Error(
-        `Gemini API rate limit hit. Wait and retry.\n\nDetails: ${stderr.trim()}`,
+        `Gemini API capacity limit hit (${capacity.kind}). Wait and retry.\n\nDetails: ${capacity.message}`,
       );
     }
   }

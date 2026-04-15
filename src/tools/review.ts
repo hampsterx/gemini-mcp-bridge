@@ -1,5 +1,11 @@
 import { spawnGemini } from "../utils/spawn.js";
-import { parseStreamJson, tryParsePartial, OUTPUT_FORMAT } from "../utils/parse.js";
+import {
+  parseStreamJson,
+  tryParsePartial,
+  extractCapacityFailure,
+  type CapacityFailure,
+  OUTPUT_FORMAT,
+} from "../utils/parse.js";
 import { checkErrorPatterns } from "../utils/errors.js";
 import { loadPrompt, buildLengthLimit } from "../utils/prompts.js";
 import {
@@ -52,6 +58,8 @@ export interface ReviewResult {
   appliedTimeout: number;
   /** True when appliedTimeout came from diff-size auto-scaling (focused/deep only, no caller override). */
   timeoutScaled: boolean;
+  /** Present when the requested review could not complete because Gemini returned a capacity-related failure. */
+  capacityFailure?: CapacityFailure;
 }
 
 // --- Timeout constants ---
@@ -315,18 +323,23 @@ async function runReview(
     useYolo = false;
   }
 
-  const { result, fallbackUsed, fallbackModel } = await withModelFallback(
-    model,
-    (m, t) => {
-      const args: string[] = [];
-      if (useYolo) args.push("--yolo");
-      if (m) args.push("--model", m);
-      args.push("--output-format", OUTPUT_FORMAT);
-      return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
-    },
-    timeout,
-  );
+  const spawnOnce = (m: string | undefined, t: number) => {
+    const args: string[] = [];
+    if (useYolo) args.push("--yolo");
+    if (m) args.push("--model", m);
+    args.push("--output-format", OUTPUT_FORMAT);
+    return spawnGemini({ args, cwd, stdin: prompt, timeout: t });
+  };
 
+  const fallbackResult = depth === "deep"
+    ? {
+        result: await spawnOnce(model, timeout),
+        fallbackUsed: false,
+        fallbackModel: undefined,
+      }
+    : await withModelFallback(model, spawnOnce, timeout);
+
+  const { result, fallbackUsed, fallbackModel } = fallbackResult;
   const actualModel = fallbackUsed ? fallbackModel : model;
 
   if (result.timedOut) {
@@ -349,6 +362,22 @@ async function runReview(
     };
   }
 
+  const capacityFailure = extractCapacityFailure(result.stderr);
+  if (depth === "deep" && capacityFailure && result.exitCode !== 0) {
+    return {
+      response: buildCapacityFailureMessage(depth, capacityFailure),
+      diffSource,
+      base,
+      mode: depth,
+      model: actualModel,
+      fallbackUsed: undefined,
+      timedOut: false,
+      resolvedCwd: cwd,
+      capacityFailure,
+      ...meta,
+    };
+  }
+
   checkErrorPatterns(result.exitCode, result.stderr);
 
   const parsed = parseStreamJson(result.stdout, result.stderr);
@@ -362,6 +391,7 @@ async function runReview(
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
     resolvedCwd: cwd,
+    capacityFailure: capacityFailure ?? undefined,
     ...meta,
   };
 }
@@ -403,4 +433,13 @@ function annotatePartialWithStat(partialText: string, diffStat?: DiffStat): stri
   const seconds = match[1];
   const replacement = `[Partial response, timed out after ${seconds}s on ${diffStat.files}-file diff (+${diffStat.insertions} / -${diffStat.deletions}); consider depth: "scan" or narrow the base]`;
   return partialText.replace(match[0], replacement);
+}
+
+function buildCapacityFailureMessage(depth: ReviewDepth, failure: CapacityFailure): string {
+  const code = failure.statusCode ? ` (${failure.statusCode})` : "";
+  return [
+    `The requested ${depth} review could not be completed because Gemini returned a capacity-related failure: ${failure.kind}${code}.`,
+    "No internal retry or fallback was attempted so the caller can decide whether to retry later or downgrade the review depth.",
+    `Details: ${failure.message}`,
+  ].join("\n\n");
 }
