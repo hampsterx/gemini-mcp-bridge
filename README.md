@@ -34,10 +34,13 @@ gemini -p "Is this approach sound for handling retries?"
 
 **Use this MCP bridge instead when:**
 - Your client has no shell access (Cursor, Windsurf, Claude Desktop, VS Code)
+- You want to know the cost before you pay it, `assess` classifies a diff in <2s (no spawn) and recommends a review depth with an estimated wall time
+- You need graduated review depth rather than all-or-nothing: `scan` (diff-only, ~40s), `focused` (reads changed files, 1-3min), `deep` (full agentic, up to 30min) with per-depth auto-scaled timeouts
 - You need structured output with JSON Schema validation (Gemini CLI has [no custom schema support](https://github.com/google-gemini/gemini-cli/issues/13388))
-- You need concurrency management (max 3 parallel spawns, queuing)
-- You need partial response capture on timeout (NDJSON streaming)
-- You want response length controls (`maxResponseLength` parameter)
+- You need concurrency management (max 3 parallel spawns, FIFO queue)
+- You need partial response capture on timeout (NDJSON streaming) and automatic model fallback on quota errors
+- You need response length controls (`maxResponseLength` parameter)
+- You want subprocess isolation: env allowlist, path sandboxing, no shell escape
 
 ## Quick Start
 
