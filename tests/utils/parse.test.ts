@@ -282,4 +282,15 @@ describe("extractCapacityFailure", () => {
   it("does not classify generic 'unavailable' text as a capacity failure", () => {
     expect(extractCapacityFailure("Requested tool is unavailable in this environment")).toBeNull();
   });
+
+  it("does not classify generic quota setup text as exhaustion", () => {
+    expect(extractCapacityFailure("quota project not set")).toBeNull();
+  });
+
+  it("classifies explicit quota exceeded text", () => {
+    expect(extractCapacityFailure("quota exceeded for this account")).toEqual({
+      kind: "quota",
+      message: "quota exceeded for this account",
+    });
+  });
 });

@@ -28,15 +28,12 @@ async function loadSpawnModule() {
   return import("../../src/utils/spawn.js");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 describe("spawnGemini pacing", () => {
   let savedMinGap: string | undefined;
   let savedJitter: string | undefined;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     savedMinGap = process.env["GEMINI_MIN_INVOCATION_GAP_MS"];
     savedJitter = process.env["GEMINI_SPAWN_JITTER_MAX_MS"];
@@ -50,6 +47,7 @@ describe("spawnGemini pacing", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     if (savedMinGap !== undefined) {
       process.env["GEMINI_MIN_INVOCATION_GAP_MS"] = savedMinGap;
     } else {
@@ -68,17 +66,19 @@ describe("spawnGemini pacing", () => {
     const { spawnGemini, resetConcurrency } = await loadSpawnModule();
     resetConcurrency();
 
-    await spawnGemini({ args: ["--version"], cwd: "/tmp" });
+    const first = spawnGemini({ args: ["--version"], cwd: "/tmp" });
+    await vi.runAllTimersAsync();
+    await first;
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
     const second = spawnGemini({ args: ["--version"], cwd: "/tmp" });
-    await sleep(5);
+    await vi.advanceTimersByTimeAsync(5);
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-    await sleep(25);
+    await vi.advanceTimersByTimeAsync(25);
     expect(mockSpawn).toHaveBeenCalledTimes(2);
     await second;
-  }, 10_000);
+  });
 
   it("adds deterministic jitter before spawning", async () => {
     process.env["GEMINI_MIN_INVOCATION_GAP_MS"] = "0";
@@ -89,11 +89,11 @@ describe("spawnGemini pacing", () => {
     resetConcurrency();
 
     const run = spawnGemini({ args: ["--version"], cwd: "/tmp" });
-    await sleep(5);
+    await vi.advanceTimersByTimeAsync(5);
     expect(mockSpawn).toHaveBeenCalledTimes(0);
 
-    await sleep(10);
+    await vi.advanceTimersByTimeAsync(10);
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     await run;
-  }, 10_000);
+  });
 });

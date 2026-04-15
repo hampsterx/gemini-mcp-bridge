@@ -362,7 +362,9 @@ async function runReview(
     };
   }
 
-  const capacityFailure = extractCapacityFailure(result.stderr);
+  const capacityFailure = result.exitCode !== 0
+    ? extractCapacityFailure(result.stderr)
+    : null;
   if (depth === "deep" && capacityFailure && result.exitCode !== 0) {
     return {
       response: buildCapacityFailureMessage(depth, capacityFailure),
@@ -391,7 +393,6 @@ async function runReview(
     fallbackUsed: fallbackUsed || undefined,
     timedOut: false,
     resolvedCwd: cwd,
-    capacityFailure: capacityFailure ?? undefined,
     ...meta,
   };
 }

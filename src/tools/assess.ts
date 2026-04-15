@@ -112,6 +112,13 @@ export function classifyComplexity(stat: DiffStat, files: string[]): Complexity 
   return "trivial";
 }
 
+/**
+ * Classify the overall diff into a coarse content category.
+ *
+ * @param files Changed file paths from the diff.
+ * @returns A `DiffKind` describing whether the diff is empty, code, mixed,
+ * non-code, or generated churn.
+ */
 export function classifyDiffKind(files: string[]): DiffKind {
   if (files.length === 0) return "empty";
 
@@ -124,6 +131,13 @@ export function classifyDiffKind(files: string[]): DiffKind {
   return "mixed";
 }
 
+/**
+ * Build advisory guidance text for a given diff category.
+ *
+ * @param diffKind The previously-classified diff kind.
+ * @returns Short caller-facing guidance describing how to interpret the diff
+ * and which review depth is likely to be appropriate.
+ */
 export function buildGuidance(diffKind: DiffKind): string {
   switch (diffKind) {
     case "empty":

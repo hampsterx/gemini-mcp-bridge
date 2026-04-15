@@ -260,6 +260,17 @@ function normalizeCapacityMessage(text: string): string {
   return singleLine.length > 240 ? `${singleLine.slice(0, 237)}...` : singleLine;
 }
 
+/**
+ * Parse Gemini stderr and classify recognized capacity-related failures.
+ *
+ * Supports structured JSON payloads such as `{ error: { code, status, message } }`
+ * as well as plain-text stderr containing explicit 429 / 503 / rate-limit /
+ * service-unavailable / quota-exceeded signals.
+ *
+ * @param stderr Raw stderr text from the Gemini CLI subprocess.
+ * @returns A normalized `CapacityFailure` when a known capacity pattern is
+ * detected, otherwise `null`.
+ */
 export function extractCapacityFailure(stderr: string): CapacityFailure | null {
   const cleaned = cleanErrorText(stderr);
   if (!cleaned) return null;
@@ -303,7 +314,10 @@ export function extractCapacityFailure(stderr: string): CapacityFailure | null {
     return { kind: "resource_exhausted", message };
   }
 
-  if (lower.includes("quota")) {
+  if (
+    /quota\s+exceed(?:ed|s)?/i.test(cleaned)
+    || /exceed(?:ed|s)?\s+quota/i.test(cleaned)
+  ) {
     return { kind: "quota", message };
   }
 
