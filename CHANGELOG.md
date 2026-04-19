@@ -7,14 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-20
+
 ### Added
 - **Response chunking for `query`, `review`, and `search`**: oversized text responses now return chunk 1 plus cache metadata instead of risking MCP client truncation. Cache is in-memory, 10-minute TTL, max 50 entries, with logical-boundary chunk splitting where possible.
 - **`fetch-chunk` tool**: retrieves cached follow-up chunks using `cacheKey` and a 1-based `chunkIndex`.
 - **Chunking smoke coverage**: `node scripts/smoke-test.mjs fetch-chunk` validates the cache round-trip without restarting the MCP client.
+- **`assess` change-kind classification**: `empty`, `code`, `mixed`, `non-code`, `generated`. Returned alongside complexity so callers can decide whether a diff is worth reviewing at all. Documentation-only diffs are still reviewable by default rather than auto-dismissed as churn.
+- **`assess` guidance field**: human-readable recommendation string tailored to the detected change kind and complexity.
+- **Spawn pacing controls**: `GEMINI_MIN_INVOCATION_GAP_MS` enforces a minimum gap between CLI start times; `GEMINI_SPAWN_JITTER_MAX_MS` adds small randomized startup jitter. Concurrency limits and queue behavior unchanged.
+- **Structured capacity-failure metadata for deep reviews**: explicit 429 / 503 / `RESOURCE_EXHAUSTED` responses surface as structured metadata on the review result instead of triggering an internal retry. Callers can now decide whether to back off, downgrade depth, or retry.
 
 ### Changed
 - **Server response formatting**: prose-style tool responses now flow through a shared formatter that can append metadata and apply chunking consistently.
 - **`structured` tool left unchunked intentionally**: preserves machine-consumable JSON output instead of returning partial payloads.
+- **Deep review no longer falls back internally on capacity errors**: previously a 429 or 503 would trigger a retry. Now it returns structured capacity metadata for the caller. Other tools and review depths keep existing fallback behavior.
 
 ## [0.4.0] - 2026-04-14
 
