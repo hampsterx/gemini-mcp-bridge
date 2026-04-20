@@ -38,6 +38,34 @@ try {
     console.log("response:", result.response);
     console.log("resolvedCwd:", result.resolvedCwd);
     console.log("timedOut:", result.timedOut);
+  } else if (tool === "query-change-mode") {
+    const { executeQuery } = await import("../dist/tools/query.js");
+    const result = await executeQuery({
+      prompt:
+        "Rename the variable 'greeting' to 'welcome' in src/index.ts. Output only the edit blocks required, nothing else.",
+      workingDirectory,
+      changeMode: true,
+      timeout: 180_000,
+    });
+    console.log("response (first 300):", result.response.slice(0, 300) + (result.response.length > 300 ? "..." : ""));
+    console.log("resolvedCwd:", result.resolvedCwd);
+    console.log("timedOut:", result.timedOut);
+    console.log("appliedWrites:", result.appliedWrites ?? false);
+    console.log("warning:", result.warning ?? "(none)");
+    console.log("edits:", result.edits ? result.edits.length : 0);
+    if (result.edits) {
+      for (const e of result.edits) {
+        console.log(`  - ${e.filename}:${e.startLine}-${e.endLine}`);
+      }
+    }
+    // The smoke target must fail loudly when the change-mode path didn't
+    // yield structured edits: any of timeout, applied writes, parse failure,
+    // or an empty edit list means the feature is not round-tripping end to
+    // end. Print result fields first, then exit non-zero.
+    if (!result.edits || result.edits.length === 0 || result.appliedWrites || result.timedOut) {
+      console.error("\n--- FAIL: no structured edits produced ---");
+      process.exit(1);
+    }
   } else if (tool === "search") {
     const { executeSearch } = await import("../dist/tools/search.js");
     const result = await executeSearch({
@@ -87,7 +115,7 @@ try {
     console.log("totalChunks:", result.totalChunks);
     console.log("chunk:", result.chunk.slice(0, 120) + (result.chunk.length > 120 ? "..." : ""));
   } else {
-    console.error(`Unknown tool: ${tool}. Use: query, search, review, ping, fetch-chunk`);
+    console.error(`Unknown tool: ${tool}. Use: query, query-change-mode, search, review, ping, fetch-chunk`);
     process.exit(1);
   }
 

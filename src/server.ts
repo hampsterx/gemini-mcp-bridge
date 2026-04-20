@@ -35,10 +35,13 @@ Capabilities:
 - Image understanding: screenshots, diagrams, architecture charts (png/jpg/gif/webp/bmp)
 - General knowledge questions and technical research
 - Text transformation, summarization, and generation
+- Change mode: structured edit blocks parsed into a machine-applicable \`edits\` array (see 'changeMode' below)
 
 File handling: Pass file paths in the 'files' array as hints. Text files are referenced via @{path} — Gemini reads them with its own tools. Image files use --yolo mode for native pixel access. Gemini may also read files beyond the ones you hint at.
 
 Note: Gitignored files cannot be read in text-query mode (plan mode restriction). Image queries (--yolo) can read gitignored files.
+
+Change mode: set 'changeMode: true' to ask Gemini to emit structured \`**FILE: <path>:<start>-<end>**\` / \`===OLD===\` / \`===NEW===\` blocks instead of prose. The response text stays in \`response\`; parsed edits are returned on \`_meta.edits\` and never chunked. The tool runs in default agentic mode (NOT plan mode, which refuses to emit edit blocks) with a pre/post-spawn git snapshot that detects any file writes Gemini might attempt. If writes are detected the tool returns \`_meta.appliedWrites: true\` and omits edits for safety. Text-only (image files rejected). Requires a git working directory.
 
 Model tips: Use gemini-2.5-flash for speed, gemini-2.5-pro for depth and complex reasoning. If omitted, the CLI auto-selects via its routing model.
 
@@ -57,13 +60,17 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in milliseconds (default: 120000, max: 600000). Minimum useful: ~20s due to CLI startup."),
+        .describe("Timeout in milliseconds (default: 120000, max: 1800000). Minimum useful: ~20s due to CLI startup."),
       maxResponseLength: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Soft limit on response length in words (e.g. 500). Reduces oversized responses from Gemini's large context window."),
+      changeMode: z
+        .boolean()
+        .optional()
+        .describe("When true, Gemini emits structured **FILE: path:start-end** / ===OLD=== / ===NEW=== edit blocks. Legacy OLD:/NEW: markers are still parsed for back-compat. Parsed edits are returned on _meta.edits (never chunked). A pre/post-spawn git snapshot enforces that Gemini did not write any files; if writes are detected, _meta.appliedWrites is true and edits are omitted. Text-only, requires a git workingDirectory."),
     },
     {
       title: "Gemini Query",
@@ -95,6 +102,20 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
         } else if (result.model) {
           meta.push(`Model: ${result.model}`);
         }
+        if (result.edits) {
+          meta.push(`Edits: ${result.edits.length} structured edit block${result.edits.length === 1 ? "" : "s"} (see _meta.edits)`);
+        }
+        if (result.appliedWrites) {
+          meta.push("Warning: Gemini wrote files during the spawn; edits were not returned for safety");
+        }
+        if (result.warning && !result.appliedWrites) {
+          meta.push(`Warning: ${result.warning}`);
+        }
+
+        const extraMeta: Record<string, unknown> = {};
+        if (result.edits) extraMeta.edits = result.edits;
+        if (result.appliedWrites) extraMeta.appliedWrites = true;
+        if (result.warning) extraMeta.changeModeWarning = result.warning;
 
         return formatTextResponse({
           body: result.response,
@@ -105,6 +126,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
             durationMs,
             partial: result.timedOut,
           },
+          extraMeta: Object.keys(extraMeta).length > 0 ? extraMeta : undefined,
         });
       } catch (e) {
         const durationMs = Math.round(performance.now() - startMs);
@@ -269,7 +291,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in ms (default: 120000, max: 600000). Complex multi-search queries may need more time."),
+        .describe("Timeout in ms (default: 120000, max: 1800000). Complex multi-search queries may need more time."),
       maxResponseLength: z
         .number()
         .int()
@@ -352,7 +374,7 @@ Output is a synthesized summary (500-1500 words by default), not raw search resu
       timeout: z
         .number()
         .optional()
-        .describe("Timeout in ms (default: 120000, max: 600000)."),
+        .describe("Timeout in ms (default: 120000, max: 1800000)."),
     },
     {
       title: "Structured Output",

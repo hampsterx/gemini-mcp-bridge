@@ -102,7 +102,9 @@ Add to your MCP settings:
 
 Send a prompt with optional file paths as hints. Gemini reads the files itself and can explore surrounding code for context. Text queries run under `--approval-mode plan` (read-only agentic). Image queries use `--yolo` for native pixel access.
 
-Key parameters: `prompt` (required), `files` (text or images), `model`, `workingDirectory`, `timeout` (default 120s, max 1800s).
+Key parameters: `prompt` (required), `files` (text or images), `model`, `workingDirectory`, `timeout` (default 120s, max 1800s), `changeMode` (see below).
+
+**Change mode**: set `changeMode: true` to ask Gemini to emit structured `**FILE: <path>:<start>-<end>**` / `===OLD===` / `===NEW===` edit blocks instead of prose. The raw response stays in `response` (chunked normally); parsed edits are returned on `_meta.edits` as a machine-applicable array and are never chunked. A pre/post-spawn git snapshot detects any file writes Gemini might attempt, if writes are found, `_meta.appliedWrites` is set to true and `edits` is omitted so callers can't re-apply half-applied state. Text-only for v1; requires a git `workingDirectory`. Plan mode refuses to emit edit blocks (verified on CLI 0.38.0), so change mode runs in default agentic mode with the snapshot guardrail as the safety net.
 
 ### assess
 
