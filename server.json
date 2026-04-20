@@ -1,0 +1,76 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hampsterx/gemini-mcp-bridge",
+  "description": "MCP server that wraps Gemini CLI for query, code review, web search, structured output, and diff assessment. Adds concurrency control, NDJSON streaming, response chunking, and secret redaction.",
+  "repository": {
+    "url": "https://github.com/hampsterx/gemini-mcp-bridge",
+    "source": "github"
+  },
+  "version": "0.5.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "gemini-mcp-bridge",
+      "version": "0.5.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GEMINI_CLI_PATH",
+          "description": "Path to the gemini CLI binary. Defaults to 'gemini' on PATH.",
+          "format": "string",
+          "isRequired": false,
+          "default": "gemini"
+        },
+        {
+          "name": "GEMINI_DEFAULT_MODEL",
+          "description": "Default Gemini model for query/review/search.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "GEMINI_FALLBACK_MODEL",
+          "description": "Model to use when the primary model hits a quota or availability error.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "GEMINI_MAX_CONCURRENT",
+          "description": "Maximum concurrent Gemini CLI subprocesses (default 3).",
+          "format": "number",
+          "isRequired": false,
+          "default": "3"
+        },
+        {
+          "name": "GEMINI_MIN_INVOCATION_GAP_MS",
+          "description": "Minimum milliseconds between consecutive CLI spawns, used to avoid rate-limit bursts.",
+          "format": "number",
+          "isRequired": false,
+          "default": "5000"
+        },
+        {
+          "name": "GEMINI_SPAWN_JITTER_MAX_MS",
+          "description": "Upper bound of random jitter added to each CLI spawn to spread load.",
+          "format": "number",
+          "isRequired": false,
+          "default": "200"
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "description": "API key for Gemini. Alternative to GOOGLE_API_KEY or OAuth login.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_API_KEY",
+          "description": "Google API key for Gemini. Alternative to GEMINI_API_KEY or OAuth login.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
