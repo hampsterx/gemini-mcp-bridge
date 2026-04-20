@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-04-21
 
 ### Added
 - **`changeMode` on `query` tool**: opt-in flag that asks Gemini to emit structured `**FILE: <path>:<start>-<end>**` / `===OLD===` / `===NEW===` edit blocks instead of prose. Legacy `OLD:` / `NEW:` markers are still parsed per-block for back-compat. Parsed edits are returned on `_meta.edits` as a machine-applicable array (never chunked) while the raw response stays in `response` (chunked normally).
@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/utils/changeMode.ts`**: edit-block parser with primary (`:<start>-<end>`) and bare (`**FILE: <path>**`, content-inferred range) header formats, path realpath check against the working directory, and same-file overlap rejection. Uses `===OLD===` / `===NEW===` section markers to avoid collision with legacy `OLD:` / `NEW:` lines that can appear naturally in YAML, config files, or string literals. Legacy `OLD:` / `NEW:` markers are still accepted as a fallback.
 - **`src/utils/workdirSnapshot.ts`**: cheap tracked-file snapshot + diff used by the change-mode guardrail.
 - **`query-change-mode` smoke target**: `node scripts/smoke-test.mjs query-change-mode <repo>` exercises the full change-mode path end-to-end.
+- **MCP Registry manifest (`server.json`)**: registers the bridge with the official MCP Registry so it shows up at [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io) and downstream aggregators (PulseMCP, FindMCP, VS Code `@mcp` gallery).
+- **`mcpName` in `package.json`** (`io.github.hampsterx/gemini-mcp-bridge`): required for Registry ownership verification on publish. Env var defaults in `server.json` are strings per Registry validation.
 
 ### Note
 - Change mode rejects image files for v1 and refuses to run in non-git working directories (the guardrail needs `git ls-files` / `git status`).
