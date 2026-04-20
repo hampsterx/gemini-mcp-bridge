@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`changeMode` on `query` tool**: opt-in flag that asks Gemini to emit structured `**FILE: <path>:<start>-<end>**` / `===OLD===` / `===NEW===` edit blocks instead of prose. Legacy `OLD:` / `NEW:` markers are still parsed per-block for back-compat. Parsed edits are returned on `_meta.edits` as a machine-applicable array (never chunked) while the raw response stays in `response` (chunked normally).
+- **Change-mode write guardrail**: pre/post-spawn snapshot of tracked-file mtime+size and `git status --porcelain` under the working directory. If Gemini mutates any file during the spawn, `_meta.appliedWrites` is set to true and `edits` is omitted so callers can't re-apply half-applied state. Requires a git working directory.
+- **`prompts/change-mode.md` template**: strict output contract instructing Gemini to emit edit blocks only, without applying writes.
+- **`src/utils/changeMode.ts`**: edit-block parser with primary (`:<start>-<end>`) and bare (`**FILE: <path>**`, content-inferred range) header formats, path realpath check against the working directory, and same-file overlap rejection. Uses `===OLD===` / `===NEW===` section markers to avoid collision with legacy `OLD:` / `NEW:` lines that can appear naturally in YAML, config files, or string literals. Legacy `OLD:` / `NEW:` markers are still accepted as a fallback.
+- **`src/utils/workdirSnapshot.ts`**: cheap tracked-file snapshot + diff used by the change-mode guardrail.
+- **`query-change-mode` smoke target**: `node scripts/smoke-test.mjs query-change-mode <repo>` exercises the full change-mode path end-to-end.
+
+### Note
+- Change mode rejects image files for v1 and refuses to run in non-git working directories (the guardrail needs `git ls-files` / `git status`).
+- Spawn uses default agentic mode (no `--approval-mode plan`, no `--yolo`) because plan mode refuses to emit edit blocks (verified on CLI 0.38.0). The snapshot guardrail is the safety net against the default-mode write capability.
+
 ## [0.5.0] - 2026-04-20
 
 ### Added

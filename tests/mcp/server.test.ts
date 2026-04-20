@@ -135,6 +135,64 @@ describe("MCP server wiring", () => {
     expect(content._meta?.totalChunks).toBeGreaterThan(1);
   });
 
+  it("query tool passes changeMode through to executeQuery and exposes edits in _meta", async () => {
+    mockQuery.mockResolvedValue({
+      response: "**FILE: /tmp/repo/x.ts:1-1**\nOLD:\nold\nNEW:\nnew",
+      timedOut: false,
+      resolvedCwd: "/tmp/repo",
+      filesIncluded: [],
+      filesSkipped: [],
+      imagesIncluded: [],
+      edits: [
+        { filename: "x.ts", startLine: 1, endLine: 1, oldCode: "old", newCode: "new" },
+      ],
+    });
+
+    const result = await client.callTool({
+      name: "query",
+      arguments: { prompt: "rename", changeMode: true },
+    });
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ changeMode: true }),
+    );
+
+    const content = result.content[0] as {
+      text: string;
+      _meta?: { edits?: unknown; appliedWrites?: boolean };
+    };
+    expect(content.text).toContain("Edits: 1 structured edit block");
+    expect(content._meta?.edits).toEqual([
+      { filename: "x.ts", startLine: 1, endLine: 1, oldCode: "old", newCode: "new" },
+    ]);
+  });
+
+  it("query tool surfaces appliedWrites warning and omits edits in _meta", async () => {
+    mockQuery.mockResolvedValue({
+      response: "raw text from Gemini",
+      timedOut: false,
+      resolvedCwd: "/tmp/repo",
+      filesIncluded: [],
+      filesSkipped: [],
+      imagesIncluded: [],
+      appliedWrites: true,
+      warning: "Gemini wrote files; edits were not returned for safety",
+    });
+
+    const result = await client.callTool({
+      name: "query",
+      arguments: { prompt: "rename", changeMode: true },
+    });
+
+    const content = result.content[0] as {
+      text: string;
+      _meta?: { appliedWrites?: boolean; edits?: unknown };
+    };
+    expect(content.text).toContain("Warning: Gemini wrote files");
+    expect(content._meta?.appliedWrites).toBe(true);
+    expect(content._meta?.edits).toBeUndefined();
+  });
+
   it("fetch-chunk returns cached chunk text with metadata", async () => {
     mockFetchChunk.mockResolvedValue({
       chunk: "second chunk text",
