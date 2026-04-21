@@ -118,7 +118,7 @@ Three depth tiers, selectable via the `depth` parameter. Use the `assess` tool f
 
 - **scan**: diff-only, single-pass, no repo exploration. Constant 180s timeout. Good for sanity checks and small diffs.
 - **focused**: pre-computed diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Timeout `120s + 15s * files` (cap 300s; 240s fallback). Good for light-to-moderate reviews.
-- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). On capacity failures such as 429/503, deep review returns structured failure metadata instead of retrying or silently downgrading. Deepest.
+- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). On capacity failures such as 429/503, deep review returns structured failure metadata instead of retrying or silently downgrading. Deepest.
 
 The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
 

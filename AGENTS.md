@@ -1,4 +1,6 @@
-# CLAUDE.md - gemini-mcp-bridge
+# AGENTS.md - gemini-mcp-bridge
+
+Guidance for AI coding agents working in the gemini-mcp-bridge repository.
 
 ## Project Overview
 
@@ -57,7 +59,7 @@ The `review` tool has three depth tiers, selectable via the `depth` parameter:
 
 - **scan**: Sends only the diff text. Single-pass, no repo exploration. Constant 180s timeout. Fastest, shallowest.
 - **focused**: Pre-computes the diff and inlines it. CLI spawns in plan mode (no `--yolo`) so Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Prompt instructs Gemini to read changed files for context but NOT trace imports, check tests, or explore the wider repo. Timeout: `120s + 15s * files`, capped at 300s; 240s fallback when diff stat unavailable. Containment is **prompt-driven, not CLI-enforced**: plan mode removes shell access but does not scope reads to changed files.
-- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
+- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
 
 The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
 
@@ -158,10 +160,18 @@ Implications:
 - **ci.yml**: lint + test + build on PRs
 - **publish.yml**: npm publish on `v*` tags via OIDC trusted publishing (no npm token needed)
 - Semantic versioning, CHANGELOG.md with Keep a Changelog format
+- Releases are cut by the maintainer; do not bump `package.json`/`server.json` versions as part of a feature PR
 
-### Release Workflow
+## Release Footguns
 
-See [RELEASING.md](RELEASING.md) for the full checklist including pre-release checks, publish steps (OIDC auto-publish), and post-release npm validation.
+The maintainer's `RELEASING.md` is gitignored; the release-critical pitfalls live inline below so contributors see them. Things that have bitten past releases:
+
+- **MCP Registry description ≤ 100 chars.** `server.json.description` is validated at publish time (HTTP 422 `expected length <= 100`). Count before committing.
+- **`server.json` env var `default` values must be strings**, even when `format: "number"`. Registry rejects publish with non-string defaults. Seen 2026-04-21.
+- **`mcpName` in `package.json`** must exactly equal `server.json.name` (`io.github.hampsterx/gemini-mcp-bridge`). Registry ownership check fails otherwise.
+- **Version must agree in four places**: `package.json.version`, `package-lock.json`, `server.json.version`, and `server.json.packages[0].version`. `npm version` updates the first two; the other two are manual. Registry rejects mismatches against the published npm tarball.
+- **mcp-publisher JWT expires silently.** Between v0.5.0 (2026-04-19) and v0.6.0 (2026-04-21) the token expired mid-release. Re-run `mcp-publisher login github` (interactive device-flow OAuth) at the start of any release session.
+- **OIDC publish requires npm ≥ 11.5.1.** Node 22 LTS ships 10.x. `publish.yml` uses `npx --yes npm@latest publish` to sidestep this. Do not replace with a plain `npm publish` step.
 
 ## Git Workflow
 

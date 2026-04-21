@@ -151,7 +151,7 @@ Each invocation spawns a fresh CLI process (~15-20s startup overhead). Plan time
 Three depths:
 - scan: diff-only, single-pass, no repo exploration. Fastest (~180s timeout). Good for sanity checks and small diffs.
 - focused: diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Medium (~120-300s). Good for light-to-moderate reviews.
-- deep (default): full agentic exploration with shell access. Gemini runs git itself, follows imports, checks tests, reads project instruction files (CLAUDE.md, GEMINI.md, etc.). Slowest but deepest (~180s-30min).
+- deep (default): full agentic exploration with shell access. Gemini runs git itself, follows imports, checks tests, reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Slowest but deepest (~180s-30min).
 
 Use the 'assess' tool first to classify diff complexity, change kind, and get a depth recommendation.
 
