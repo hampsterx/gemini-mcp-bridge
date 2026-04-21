@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hampsterx/gemini-mcp-bridge",
-  "description": "MCP server that wraps Gemini CLI for query, code review, web search, structured output, and diff assessment. Adds concurrency control, NDJSON streaming, response chunking, and secret redaction.",
+  "description": "MCP server wrapping Gemini CLI: query, review, search, structured output, and diff assessment.",
   "repository": {
     "url": "https://github.com/hampsterx/gemini-mcp-bridge",
     "source": "github"
