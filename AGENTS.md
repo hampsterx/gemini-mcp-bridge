@@ -160,23 +160,7 @@ Implications:
 - **ci.yml**: lint + test + build on PRs
 - **publish.yml**: npm publish on `v*` tags via OIDC trusted publishing (no npm token needed)
 - Semantic versioning, CHANGELOG.md with Keep a Changelog format
-
-### Release Workflow
-
-See [RELEASING.md](RELEASING.md) for the full checklist including pre-release checks, publish steps (OIDC auto-publish), and post-release npm validation.
-
-## Release Footguns
-
-Caught the hard way during v0.5.0 / v0.6.0 releases. Check these before cutting any release:
-
-- **MCP Registry description ≤ 100 chars**. `server.json.description` is validated at publish time (HTTP 422 `expected length <= 100`). Count before committing.
-- **`server.json` env var `default` values must be strings**, even when `format: "number"`. Registry rejects publish with non-string defaults. Seen 2026-04-21.
-- **`mcpName` in `package.json`** must exactly equal `server.json.name` (`io.github.hampsterx/gemini-mcp-bridge`). Registry ownership check fails otherwise.
-- **`server.json.version` must match `package.json.version` AND `packages[0].version` AND the npm tarball version**. Registry rejects mismatches. Update all four together; `npm version` does not touch `server.json`.
-- **mcp-publisher JWT expires silently**. Between v0.5.0 (2026-04-19) and v0.6.0 (2026-04-21) the token expired. Re-run `mcp-publisher login github` (interactive device-flow OAuth) at the start of any release session.
-- **CLI cold start ~16s per spawn** (Gemini CLI 584MB sync init, upstream issue #21259). Timeouts below 20s are useless for non-ping tools.
-- **`NODE_OPTIONS=--max-old-space-size=8192`** is not optional for the subprocess; without it GC pressure nearly doubles wall time. Keep `src/utils/env.ts` pinning this.
-- **OIDC publish requires npm ≥ 11.5.1**. Node 22 LTS ships 10.x. `publish.yml` uses `npx --yes npm@latest publish` to sidestep this. Do not replace with a plain `npm publish` step.
+- Releases are cut by the maintainer; do not bump `package.json`/`server.json` versions as part of a feature PR
 
 ## Git Workflow
 
@@ -191,15 +175,3 @@ Caught the hard way during v0.5.0 / v0.6.0 releases. Check these before cutting 
 - Error messages must be actionable ("gemini CLI not found - install with: npm i -g @google/gemini-cli")
 - All public functions must have JSDoc
 - Tests colocated with source where possible, integration tests separate
-
-## Agent Filename Hint
-
-`AGENTS.md` is the canonical agent instructions file for this repository. If your coding agent expects a different filename (some tools look for `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`), create a local symlink rather than copying the file so both stay in sync:
-
-```bash
-ln -s AGENTS.md CLAUDE.md
-ln -s AGENTS.md GEMINI.md
-ln -s AGENTS.md COPILOT.md
-```
-
-These filenames are gitignored in this repo, so a clone starts without them. The symlink above is safe to create in a fresh clone.
