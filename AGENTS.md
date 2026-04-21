@@ -1,4 +1,6 @@
-# CLAUDE.md - gemini-mcp-bridge
+# AGENTS.md - gemini-mcp-bridge
+
+Guidance for AI coding agents working in the gemini-mcp-bridge repository.
 
 ## Project Overview
 
@@ -57,7 +59,7 @@ The `review` tool has three depth tiers, selectable via the `depth` parameter:
 
 - **scan**: Sends only the diff text. Single-pass, no repo exploration. Constant 180s timeout. Fastest, shallowest.
 - **focused**: Pre-computes the diff and inlines it. CLI spawns in plan mode (no `--yolo`) so Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Prompt instructs Gemini to read changed files for context but NOT trace imports, check tests, or explore the wider repo. Timeout: `120s + 15s * files`, capped at 300s; 240s fallback when diff stat unavailable. Containment is **prompt-driven, not CLI-enforced**: plan mode removes shell access but does not scope reads to changed files.
-- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (CLAUDE.md, GEMINI.md, AGENTS.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
+- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
 
 The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
 
@@ -163,6 +165,19 @@ Implications:
 
 See [RELEASING.md](RELEASING.md) for the full checklist including pre-release checks, publish steps (OIDC auto-publish), and post-release npm validation.
 
+## Release Footguns
+
+Caught the hard way during v0.5.0 / v0.6.0 releases. Check these before cutting any release:
+
+- **MCP Registry description ≤ 100 chars**. `server.json.description` is validated at publish time (HTTP 422 `expected length <= 100`). Count before committing.
+- **`server.json` env var `default` values must be strings**, even when `format: "number"`. Registry rejects publish with non-string defaults. Seen 2026-04-21.
+- **`mcpName` in `package.json`** must exactly equal `server.json.name` (`io.github.hampsterx/gemini-mcp-bridge`). Registry ownership check fails otherwise.
+- **`server.json.version` must match `package.json.version` AND `packages[0].version` AND the npm tarball version**. Registry rejects mismatches. Update all four together; `npm version` does not touch `server.json`.
+- **mcp-publisher JWT expires silently**. Between v0.5.0 (2026-04-19) and v0.6.0 (2026-04-21) the token expired. Re-run `mcp-publisher login github` (interactive device-flow OAuth) at the start of any release session.
+- **CLI cold start ~16s per spawn** (Gemini CLI 584MB sync init, upstream issue #21259). Timeouts below 20s are useless for non-ping tools.
+- **`NODE_OPTIONS=--max-old-space-size=8192`** is not optional for the subprocess; without it GC pressure nearly doubles wall time. Keep `src/utils/env.ts` pinning this.
+- **OIDC publish requires npm ≥ 11.5.1**. Node 22 LTS ships 10.x. `publish.yml` uses `npx --yes npm@latest publish` to sidestep this. Do not replace with a plain `npm publish` step.
+
 ## Git Workflow
 
 - Use feature branches with PRs for all changes (do not commit directly to master)
@@ -176,3 +191,15 @@ See [RELEASING.md](RELEASING.md) for the full checklist including pre-release ch
 - Error messages must be actionable ("gemini CLI not found - install with: npm i -g @google/gemini-cli")
 - All public functions must have JSDoc
 - Tests colocated with source where possible, integration tests separate
+
+## Agent Filename Hint
+
+`AGENTS.md` is the canonical agent instructions file for this repository. If your coding agent expects a different filename (some tools look for `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`), create a local symlink rather than copying the file so both stay in sync:
+
+```bash
+ln -s AGENTS.md CLAUDE.md
+ln -s AGENTS.md GEMINI.md
+ln -s AGENTS.md COPILOT.md
+```
+
+These filenames are gitignored in this repo, so a clone starts without them. The symlink above is safe to create in a fresh clone.
