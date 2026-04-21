@@ -162,6 +162,17 @@ Implications:
 - Semantic versioning, CHANGELOG.md with Keep a Changelog format
 - Releases are cut by the maintainer; do not bump `package.json`/`server.json` versions as part of a feature PR
 
+## Release Footguns
+
+The maintainer's `RELEASING.md` is gitignored; the release-critical pitfalls live inline below so contributors see them. Things that have bitten past releases:
+
+- **MCP Registry description ≤ 100 chars.** `server.json.description` is validated at publish time (HTTP 422 `expected length <= 100`). Count before committing.
+- **`server.json` env var `default` values must be strings**, even when `format: "number"`. Registry rejects publish with non-string defaults. Seen 2026-04-21.
+- **`mcpName` in `package.json`** must exactly equal `server.json.name` (`io.github.hampsterx/gemini-mcp-bridge`). Registry ownership check fails otherwise.
+- **Version must agree in four places**: `package.json.version`, `package-lock.json`, `server.json.version`, and `server.json.packages[0].version`. `npm version` updates the first two; the other two are manual. Registry rejects mismatches against the published npm tarball.
+- **mcp-publisher JWT expires silently.** Between v0.5.0 (2026-04-19) and v0.6.0 (2026-04-21) the token expired mid-release. Re-run `mcp-publisher login github` (interactive device-flow OAuth) at the start of any release session.
+- **OIDC publish requires npm ≥ 11.5.1.** Node 22 LTS ships 10.x. `publish.yml` uses `npx --yes npm@latest publish` to sidestep this. Do not replace with a plain `npm publish` step.
+
 ## Git Workflow
 
 - Use feature branches with PRs for all changes (do not commit directly to master)
