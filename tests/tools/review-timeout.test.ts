@@ -413,7 +413,12 @@ describe("executeReview timeout wiring", () => {
 
   it("annotates partial focused response on timeout (shallower alternative exists)", async () => {
     await stageFiles(tmpDir, 5);
-    mockSpawn.mockResolvedValue(timedOutResponse("Partial focused review."));
+    mockSpawn.mockResolvedValue(timedOutResponse([
+      "## Plan",
+      "I will inspect the changed files first.",
+      "",
+      "Partial focused review.",
+    ].join("\n")));
 
     const result = await executeReview({
       workingDirectory: tmpDir,
@@ -423,6 +428,8 @@ describe("executeReview timeout wiring", () => {
     expect(result.timedOut).toBe(true);
     expect(result.response).toContain("5-file diff");
     expect(result.response).toContain('consider depth: "scan"');
+    expect(result.response).toContain("Partial focused review.");
+    expect(result.response).not.toContain("I will inspect the changed files first.");
   });
 
   it("does NOT annotate partial scan response (no shallower alternative)", async () => {
