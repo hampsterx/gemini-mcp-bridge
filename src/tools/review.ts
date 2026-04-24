@@ -461,6 +461,24 @@ const BODY_START_PATTERNS = [
   /^\s*#{1,6}\s*Issues?\s*:?\s*$/i,
 ];
 
+// Salvage-only anchors used when narration and body share a single physical line.
+// Heading anchors require a real line-start boundary (^ or newline) to block
+// blockquoted / quoted false-positives like `> ### Verdict` or `('### Verdict')`.
+// Severity requires a trailing colon so inline prose mentions like
+// "describes **Severity** markers" do not trigger a cut. The "No significant
+// findings/issues" anchor matches the same case-insensitive, optional-period
+// shape as BODY_START_PATTERNS; the lowercase-continuation guard is applied
+// in JS after the match (see salvage loop) because a `(?!\s*[a-z])` lookahead
+// inside an /i regex folds [a-z] to [A-Za-z] and breaks capital-letter bodies
+// like ". The implementation".
+const INTRA_LINE_BODY_ANCHORS = [
+  /(?:^|\n)(#{1,6}\s*Verdict\b)/i,
+  /(?:^|\n)(#{1,6}\s*(?:Code Review )?Findings?\b)/i,
+  /(?:^|\n)(#{1,6}\s*Issues?\b)/i,
+  /(?:^|[^\w`])(\*\*Severity\*\*\s*:)/,
+  /(?:^|\n|[.!?])\s*(No significant (?:findings|issues)\.?)/i,
+];
+
 /**
  * Strip leading planning narration from review output without rewriting
  * substantive findings. If the first post-preamble line does not match a
@@ -495,7 +513,36 @@ export function stripReviewPreamble(response: string): string {
     bodyStart += 1;
   }
 
-  if (bodyStart >= lines.length) return response;
+  if (bodyStart >= lines.length) {
+    const joined = lines.slice(preambleStart).join("\n");
+    // Pick the earliest cut across all anchors so a later (less semantic)
+    // anchor like **Severity**: does not win over an earlier conclusion phrase
+    // when both are present on the same physical line. Array order only
+    // tie-breaks when two anchors resolve to the same cut index.
+    let earliestCut: number | null = null;
+    for (const anchor of INTRA_LINE_BODY_ANCHORS) {
+      const match = anchor.exec(joined);
+      // match.index > 0 rejects anchors that matched at the start of `joined`;
+      // in that case there is no preamble text to strip, so skip the salvage.
+      if (!match || match.index <= 0) continue;
+      const cutAt = joined.indexOf(match[1], match.index);
+      if (cutAt <= 0) continue;
+      // Dedicated guard for the "No significant findings" prose anchor: reject
+      // cuts where the continuation is lowercase alpha (narrative mention like
+      // ". is only valid when..."). Implemented here, not as a lookahead,
+      // because the /i flag on the anchor regex folds [a-z] to [A-Za-z].
+      if (/^No significant /i.test(match[1])) {
+        const after = joined.slice(cutAt + match[1].length);
+        if (/^\s*[a-z]/.test(after)) continue;
+      }
+      if (earliestCut === null || cutAt < earliestCut) earliestCut = cutAt;
+    }
+    if (earliestCut !== null) {
+      const normalizedBody = joined.slice(earliestCut).trimStart();
+      return prefix ? `${prefix.trimEnd()}\n${normalizedBody}` : normalizedBody;
+    }
+    return response;
+  }
   if (!hasPartialPrefix && !BODY_START_PATTERNS.some((pattern) => pattern.test(lines[bodyStart].trim()))) {
     return response;
   }
