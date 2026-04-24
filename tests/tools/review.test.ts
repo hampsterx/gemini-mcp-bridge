@@ -364,6 +364,138 @@ describe("stripReviewPreamble", () => {
     expect(stripReviewPreamble(response)).toBe(response);
   });
 
+  it("strips narration before a '### Code Review Findings' heading (benchmark known-r1 shape)", () => {
+    // Verbatim narration shape captured in
+    // /tmp/bridge-benchmark-2026-04-results/cell-known-r1-poststripper.md.
+    // This is the regression that slipped through PR #35 because
+    // `BODY_START_PATTERNS` only anchored on Verdict, not Findings.
+    const response = [
+      "I will begin by gathering the diff and repository context to perform a thorough code review.",
+      "I will read the project instruction files and the full contents of the changed files to understand the context.",
+      "I'll now check the tests to see if the scenarios I've identified are covered.",
+      "",
+      "### Code Review Findings",
+      "",
+      "#### 1. Critical Safety Regression: File Writes Ignored on Timeout",
+      "Severity: critical | File: src/tools/query.ts | Line: 375-383",
+      "",
+      "### Verdict",
+      "Major rework required.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "### Code Review Findings",
+      "",
+      "#### 1. Critical Safety Regression: File Writes Ignored on Timeout",
+      "Severity: critical | File: src/tools/query.ts | Line: 375-383",
+      "",
+      "### Verdict",
+      "Major rework required.",
+    ].join("\n"));
+  });
+
+  it("strips narration before a plain '### Findings' heading", () => {
+    const response = [
+      "I will begin by reading the changed files.",
+      "",
+      "### Findings",
+      "",
+      "**Severity**: warning",
+      "The handler swallows the error.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "### Findings",
+      "",
+      "**Severity**: warning",
+      "The handler swallows the error.",
+    ].join("\n"));
+  });
+
+  it("strips narration before a '## Issues' heading", () => {
+    const response = [
+      "Let me inspect the diff.",
+      "",
+      "## Issues",
+      "",
+      "1. The null check is backwards.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "## Issues",
+      "",
+      "1. The null check is backwards.",
+    ].join("\n"));
+  });
+
+  it("does not anchor on prose that mentions findings or issues", () => {
+    const response = [
+      "I will start with the diff.",
+      "",
+      "The findings below are minor.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not anchor on a blockquoted Findings heading", () => {
+    const response = [
+      "I will start with the diff.",
+      "",
+      "> ### Code Review Findings",
+      "",
+      "**Severity**: critical",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not anchor on planning headings that extend past the Findings/Issues word", () => {
+    // Planning narration uses headings like "### Findings to check",
+    // "## Findings: to verify", "### Issues to verify". Only a heading that
+    // ends cleanly at the anchor word (optionally with a trailing colon)
+    // should be treated as the start of the review body. Anything trailing
+    // suggests narration continuing, not body content.
+    const planningHeadings = [
+      "### Findings to check",
+      "## Findings from initial scan",
+      "### Findings: to check",
+      "### Code Review Findings: next I will inspect the diff",
+      "### Issues to verify",
+      "## Issues: to verify",
+      "## Issue tracker setup",
+    ];
+    for (const heading of planningHeadings) {
+      const response = [
+        "I will begin by gathering context.",
+        "",
+        heading,
+        "",
+        "Still planning; no body yet.",
+      ].join("\n");
+
+      expect(stripReviewPreamble(response)).toBe(response);
+    }
+  });
+
+  it("anchors on a '### Findings:' heading when the colon trails with no detail", () => {
+    const response = [
+      "I will begin by reading the changed files.",
+      "",
+      "### Findings:",
+      "",
+      "**Severity**: critical",
+      "The handler swallows the error.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "### Findings:",
+      "",
+      "**Severity**: critical",
+      "The handler swallows the error.",
+    ].join("\n"));
+  });
+
   it("preserves a partial-response prefix while stripping narration before a Verdict heading", () => {
     const response = [
       "[Partial response, timed out after 180s]",
