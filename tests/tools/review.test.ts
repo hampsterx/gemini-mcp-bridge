@@ -514,6 +514,139 @@ describe("stripReviewPreamble", () => {
       "The handler swallows the error.",
     ].join("\n"));
   });
+
+  it("salvages intra-line narration glued to 'No significant findings.' on one physical line", () => {
+    // Verbatim smoke-test reproducer post-PR#36: tool-use narration and
+    // conclusion concatenated on a single physical line, no newline between
+    // them. Pre-fix the walk exhausted `lines` with preamble still active and
+    // returned the response unchanged.
+    const response =
+      "I will begin by gathering the diff and checking for project instruction files." +
+      "I will read `src/utils/parse.ts` to understand how partial responses are constructed." +
+      "No significant findings. The implementation of stripReviewPreamble is correct.";
+
+    expect(stripReviewPreamble(response)).toBe(
+      "No significant findings. The implementation of stripReviewPreamble is correct.",
+    );
+  });
+
+  it("salvages intra-line narration glued to a '**Severity**' marker on one physical line", () => {
+    const response =
+      "I will begin by reading the changed files." +
+      "**Severity**: warning. File: src/tools/review.ts. Line: 120. " +
+      "Issue: the parser drops timeout context.";
+
+    expect(stripReviewPreamble(response)).toBe(
+      "**Severity**: warning. File: src/tools/review.ts. Line: 120. " +
+        "Issue: the parser drops timeout context.",
+    );
+  });
+
+  it("leaves a single physical line of prose that happens to contain 'will' unchanged", () => {
+    // Preamble gate (line 484-487) already rejects this because the line does
+    // not open with a narration pattern. Locks that behaviour.
+    const response = "The migration will require downtime.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not salvage when the 'No significant findings' candidate is inside a code span", () => {
+    // Backtick before the phrase is excluded by the [^\w`] guard on the prose
+    // anchor, so the salvage path refuses to cut here.
+    const response =
+      "I will begin by reading the file." +
+      "The phrase `No significant findings` is handled by the stripper.";
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not salvage a blockquoted heading glued to narration on one physical line", () => {
+    // `(?:^|\n)` boundary on heading anchors refuses to match because the `>`
+    // is not a real line start. This is the critical false-positive guard.
+    const response = "I will inspect the diff. > ### Verdict: whatever is next.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not salvage a quoted heading inside narration on one physical line", () => {
+    const response = "I will check for the ('### Verdict') heading next and then continue.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not salvage a bare '**Severity**' mention in narration (no trailing colon)", () => {
+    // Codex-flagged false-positive: narration that discusses the Severity
+    // marker as a concept should not be cut. The intra-line Severity anchor
+    // requires a trailing `:` so real finding blocks (`**Severity**: warning`)
+    // still match while this prose mention does not.
+    const response = "I will explain why **Severity** markers are required in review output.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not salvage an unquoted 'No significant findings.' mention followed by lowercase prose", () => {
+    // Codex-flagged false-positive round 2: narrative that discusses the
+    // phrase after a sentence boundary, with lowercase continuation, should
+    // not be cut. The negative lookahead `(?!\s*[a-z])` on the anchor blocks
+    // explanatory prose (`is`, `means`, `when`) while still allowing real
+    // verdict continuations which start with a capital letter or end the
+    // response.
+    const response =
+      "I will explain the fallback. No significant findings. is only valid when the diff is empty.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("salvages the lowercase / missing-period variants of 'no significant findings' (parity with BODY_START_PATTERNS)", () => {
+    // BODY_START_PATTERNS is case-insensitive with an optional trailing period
+    // on the standalone-line path. The intra-line salvage must accept the
+    // same shapes so single-line responses with the lowercase or no-period
+    // form do not regress into the unstripped response.
+    const lowercase =
+      "I will begin by reading the diff." + "no significant findings. Tests pass.";
+    expect(stripReviewPreamble(lowercase)).toBe("no significant findings. Tests pass.");
+
+    const noPeriod =
+      "I will begin by reading the diff." + "No significant findings";
+    expect(stripReviewPreamble(noPeriod)).toBe("No significant findings");
+  });
+
+  it("cuts at the earliest anchor when narration + conclusion + severity all share one line", () => {
+    // Gemini-flagged ordering bug: when multiple anchors match the same
+    // joined string at different positions, the earliest cut wins. Without
+    // the fix, **Severity**: (later in the document but earlier in the
+    // anchor array) would delete the conclusion phrase.
+    const response =
+      "I will begin by reading the file." +
+      "Structure is correct.No significant findings. **Severity**: none. All tests pass.";
+
+    expect(stripReviewPreamble(response)).toBe(
+      "No significant findings. **Severity**: none. All tests pass.",
+    );
+  });
+
+  it("does not salvage a quoted 'No significant findings.' mention in narration", () => {
+    // Codex-flagged false-positive: narration wrapping the phrase in quotes
+    // must not be cut. The intra-line anchor requires a sentence-terminator or
+    // line boundary before the phrase, so a preceding `"` or `'` fails to
+    // match.
+    const response = "I will describe when \"No significant findings.\" is the correct verdict.";
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("preserves the multi-line clean-walk path (intra-line salvage does not interfere)", () => {
+    // Sanity check that when the walk finds a newline-separated body matching
+    // BODY_START_PATTERNS, the existing multi-line path still handles it and
+    // the intra-line salvage is bypassed entirely.
+    const response = [
+      "I will begin by reading the changed files.",
+      "",
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Issue**: something",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Issue**: something",
+    ].join("\n"));
+  });
 });
 
 describe("resolveDepth", () => {
