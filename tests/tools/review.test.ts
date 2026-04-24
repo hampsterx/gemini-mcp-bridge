@@ -254,6 +254,134 @@ describe("stripReviewPreamble", () => {
 
     expect(stripReviewPreamble(response)).toBe(response);
   });
+
+  it("strips narration before a '### Verdict:' heading", () => {
+    const response = [
+      "I will begin by gathering context on the changes.",
+      "I will read the project's AGENTS.md and the modified files.",
+      "",
+      "### Verdict: Critical issues found",
+      "",
+      "#### Severity: critical",
+      "The handler swallows the error.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "### Verdict: Critical issues found",
+      "",
+      "#### Severity: critical",
+      "The handler swallows the error.",
+    ].join("\n"));
+  });
+
+  it("strips narration before a '#### Verdict:' heading", () => {
+    const response = [
+      "I will now read the full contents of src/tools/query.ts.",
+      "",
+      "#### Verdict: No issues",
+      "",
+      "The diff looks clean.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "#### Verdict: No issues",
+      "",
+      "The diff looks clean.",
+    ].join("\n"));
+  });
+
+  it("strips narration before a '## Verdict' heading with no colon", () => {
+    const response = [
+      "Let me inspect the test file first.",
+      "",
+      "## Verdict",
+      "",
+      "Nothing to flag.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "## Verdict",
+      "",
+      "Nothing to flag.",
+    ].join("\n"));
+  });
+
+  it("leaves a response that starts directly with a Verdict heading unchanged", () => {
+    const response = [
+      "### Verdict: No issues",
+      "",
+      "Nothing to flag.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("leaves a Verdict heading inside a code fence alone when there is no narration preamble", () => {
+    const response = [
+      "```",
+      "### Verdict: foo",
+      "```",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not anchor on a Verdict heading buried inside a fenced code block", () => {
+    const response = [
+      "I will begin by reading the fixtures.",
+      "",
+      "```",
+      "### Verdict: foo",
+      "```",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not anchor on prose that mentions a verdict", () => {
+    const response = [
+      "I will start with the diff.",
+      "",
+      "My verdict is that this is broken.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not anchor on a blockquoted Verdict heading", () => {
+    // The trailing Severity marker is a real body-start. If the regex wrongly
+    // matched `> ### Verdict`, narration would strip and output would begin at
+    // the blockquoted line. Expecting the full original proves the `^\s*#`
+    // anchor correctly rejects the `>` prefix.
+    const response = [
+      "I will start with the diff.",
+      "",
+      "> ### Verdict: Critical",
+      "",
+      "**Severity**: critical",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("preserves a partial-response prefix while stripping narration before a Verdict heading", () => {
+    const response = [
+      "[Partial response, timed out after 180s]",
+      "",
+      "I will begin by gathering context.",
+      "",
+      "### Verdict: Critical issues found",
+      "",
+      "The handler swallows the error.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "[Partial response, timed out after 180s]",
+      "### Verdict: Critical issues found",
+      "",
+      "The handler swallows the error.",
+    ].join("\n"));
+  });
 });
 
 describe("resolveDepth", () => {

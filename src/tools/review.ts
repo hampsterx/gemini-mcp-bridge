@@ -456,6 +456,7 @@ const BODY_START_PATTERNS = [
   /^\s*Severity\s*:/i,
   /^\s*No significant findings\.?\s*$/i,
   /^\s*No significant issues\.?\s*$/i,
+  /^\s*#{1,6}\s*Verdict\b/i,
 ];
 
 /**
