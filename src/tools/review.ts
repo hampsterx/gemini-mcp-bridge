@@ -346,9 +346,11 @@ async function runReview(
     const partial = tryParsePartial(result.stdout, result.stderr, timeout);
     // Annotate only for depths that have a shallower alternative. Scan has no
     // shallower option so the "consider depth: scan" hint would be nonsense.
-    const response = depth === "scan"
-      ? partial.text
-      : annotatePartialWithStat(partial.text, diffStat);
+    const response = stripReviewPreamble(
+      depth === "scan"
+        ? partial.text
+        : annotatePartialWithStat(partial.text, diffStat),
+    );
     return {
       response,
       diffSource,
@@ -385,7 +387,7 @@ async function runReview(
   const parsed = parseStreamJson(result.stdout, result.stderr);
 
   return {
-    response: parsed.response,
+    response: stripReviewPreamble(parsed.response),
     diffSource,
     base,
     mode: depth,
@@ -434,6 +436,69 @@ function annotatePartialWithStat(partialText: string, diffStat?: DiffStat): stri
   const seconds = match[1];
   const replacement = `[Partial response, timed out after ${seconds}s on ${diffStat.files}-file diff (+${diffStat.insertions} / -${diffStat.deletions}); consider depth: "scan" or narrow the base]`;
   return partialText.replace(match[0], replacement);
+}
+
+const PREAMBLE_LINE_PATTERNS = [
+  // Narration headings: "## Plan", "### Review plan", "## Summary", etc.
+  /^\s*#{1,6}\s*(summary|plan|approach|review plan|investigation|what i checked|analysis)\b/i,
+  // Narration in a list item: "- I will check ...", "1. Let me ..."
+  /^\s*(?:[-*]|\d+\.)\s+(?:i will|i'll|i am going to|let me)\b/i,
+  // Narration with an ordinal opener: "First, I will ...", "Next, I'll ..."
+  /^\s*(?:first|second|third|next|then|finally),?\s+(?:i will|i'll|i am going to)\b/i,
+  // Bare narration line: "I will begin by ...", "Let me ..."
+  /^\s*(?:i will|i'll|i am going to|i will begin by|i'll begin by|let me)\b/i,
+];
+
+const BODY_START_PATTERNS = [
+  /^\s*\d+\.\s+/,
+  /^\s*[-*]\s+\*\*Severity\*\*/,
+  /^\s*\*\*Severity\*\*/,
+  /^\s*Severity\s*:/i,
+  /^\s*No significant findings\.?\s*$/i,
+  /^\s*No significant issues\.?\s*$/i,
+];
+
+/**
+ * Strip leading planning narration from review output without rewriting
+ * substantive findings. If the first post-preamble line does not match a
+ * known finding or verdict pattern, return the original response unchanged.
+ *
+ * When a `[Partial response, timed out after ...]` prefix is present, the
+ * finding/verdict gate is relaxed: mid-stream partials rarely reach a clean
+ * anchor, so narration is stripped as long as a preamble was detected.
+ */
+export function stripReviewPreamble(response: string): string {
+  const prefixMatch = response.match(/^(\[Partial response[^\n]*\](?:\n|$)\s*)/);
+  const prefix = prefixMatch?.[1] ?? "";
+  const hasPartialPrefix = prefix.length > 0;
+  const body = prefix ? response.slice(prefix.length) : response;
+  const trimmedBody = body.trimStart();
+  if (!trimmedBody) return response;
+
+  const lines = trimmedBody.split("\n");
+  let preambleStart = 0;
+  while (preambleStart < lines.length && lines[preambleStart].trim() === "") preambleStart += 1;
+  if (
+    preambleStart >= lines.length ||
+    !PREAMBLE_LINE_PATTERNS.some((pattern) => pattern.test(lines[preambleStart].trim()))
+  ) {
+    return response;
+  }
+
+  let bodyStart = preambleStart;
+  while (bodyStart < lines.length) {
+    const line = lines[bodyStart].trim();
+    if (line !== "" && !PREAMBLE_LINE_PATTERNS.some((pattern) => pattern.test(line))) break;
+    bodyStart += 1;
+  }
+
+  if (bodyStart >= lines.length) return response;
+  if (!hasPartialPrefix && !BODY_START_PATTERNS.some((pattern) => pattern.test(lines[bodyStart].trim()))) {
+    return response;
+  }
+
+  const normalizedBody = lines.slice(bodyStart).join("\n").trimStart();
+  return prefix ? `${prefix.trimEnd()}\n${normalizedBody}` : normalizedBody;
 }
 
 function buildCapacityFailureMessage(depth: ReviewDepth, failure: CapacityFailure): string {

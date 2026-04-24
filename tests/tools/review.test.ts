@@ -4,6 +4,7 @@ import {
   buildAgenticPrompt,
   buildQuickPrompt,
   buildFocusedPrompt,
+  stripReviewPreamble,
   resolveDepth,
   scaleTimeoutForDepth,
   defaultTimeoutForDepth,
@@ -74,6 +75,13 @@ describe("buildAgenticPrompt", () => {
     const result = buildAgenticPrompt("git diff HEAD");
     expect(result).not.toContain("Keep your response under");
   });
+
+  it("forbids narration and repo-wide drift in final output", () => {
+    const result = buildAgenticPrompt("git diff HEAD");
+    expect(result).toContain("Do not narrate tool usage");
+    expect(result).toContain('prefer "No significant findings." over speculative suggestions');
+    expect(result).toContain("Start immediately with the first finding");
+  });
 });
 
 describe("buildQuickPrompt", () => {
@@ -139,6 +147,112 @@ describe("buildFocusedPrompt", () => {
   it("omits length limit when maxResponseLength is not set", () => {
     const result = buildFocusedPrompt("some diff");
     expect(result).not.toContain("Keep your response under");
+  });
+
+  it("forbids planning narration and requires changed-file anchoring", () => {
+    const result = buildFocusedPrompt("diff");
+    expect(result).toContain("Return findings only");
+    expect(result).toContain("Every finding must be tied to a changed file");
+    expect(result).toContain("Start immediately with the first finding");
+  });
+});
+
+describe("stripReviewPreamble", () => {
+  it("strips a leading narration preamble before the first finding", () => {
+    const response = [
+      "## Summary",
+      "I will inspect the changed files first.",
+      "Then I'll look for regressions.",
+      "",
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Line**: 120",
+      "**Issue**: The parser drops timeout context.",
+      "**Suggestion**: Preserve the prefix.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Line**: 120",
+      "**Issue**: The parser drops timeout context.",
+      "**Suggestion**: Preserve the prefix.",
+    ].join("\n"));
+  });
+
+  it("preserves timeout prefixes while stripping narration", () => {
+    const response = [
+      "[Partial response, timed out after 120s on 4-file diff (+10 / -2); consider depth: \"scan\" or narrow the base]",
+      "",
+      "### Plan",
+      "I am going to inspect the changed files first.",
+      "",
+      "No significant findings.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe([
+      "[Partial response, timed out after 120s on 4-file diff (+10 / -2); consider depth: \"scan\" or narrow the base]",
+      "No significant findings.",
+    ].join("\n"));
+  });
+
+  it("leaves substantive review content unchanged when there is no narration preamble", () => {
+    const response = [
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Line**: 88",
+      "**Issue**: Diff parsing can return duplicate entries.",
+      "**Suggestion**: Deduplicate before formatting.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("does not strip ambiguous prose before a finding", () => {
+    const response = [
+      "The diff mostly looks good, but there is one defect worth fixing.",
+      "",
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Line**: 88",
+      "**Issue**: Diff parsing can return duplicate entries.",
+      "**Suggestion**: Deduplicate before formatting.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("preserves verdict lines that begin with review phrasing", () => {
+    const response = [
+      "I reviewed the changed files and found no significant issues.",
+      "Residual risk: this still depends on runtime config matching production.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("preserves a prose finding that starts with 'First,'", () => {
+    const response = [
+      "First, the null check is backwards and can never guard the dereference.",
+      "",
+      "This will throw before the fallback path runs.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
+  });
+
+  it("preserves verdict-style summaries that lead into a finding", () => {
+    const response = [
+      "I reviewed the diff and found one warning:",
+      "",
+      "**Severity**: warning",
+      "**File**: src/tools/review.ts",
+      "**Line**: 88",
+      "**Issue**: Diff parsing can return duplicate entries.",
+      "**Suggestion**: Deduplicate before formatting.",
+    ].join("\n");
+
+    expect(stripReviewPreamble(response)).toBe(response);
   });
 });
 
