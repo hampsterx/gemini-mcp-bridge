@@ -457,6 +457,8 @@ const BODY_START_PATTERNS = [
   /^\s*No significant findings\.?\s*$/i,
   /^\s*No significant issues\.?\s*$/i,
   /^\s*#{1,6}\s*Verdict\b/i,
+  /^\s*#{1,6}\s*(?:Code Review )?Findings?\s*:?\s*$/i,
+  /^\s*#{1,6}\s*Issues?\s*:?\s*$/i,
 ];
 
 /**
