@@ -17,30 +17,25 @@ Works with any MCP client: Claude Code, Codex CLI, Cursor, Windsurf, VS Code, or
 If you're in a terminal agent (Claude Code, Codex CLI) with shell access, call Gemini CLI directly:
 
 ```bash
-# Agentic review (Gemini explores the repo, reads files, follows imports)
-cd /path/to/repo && gemini -p --yolo "Review the changes on this branch vs main"
-
-# Review specific files
-gemini -p "Review this code for bugs and security issues" -- @src/file.ts @src/other.ts
-
-# Pipe a diff
-git diff origin/main...HEAD | gemini -p "Review this diff"
+# File context query
+gemini -p "Explain how this auth flow works" -- @src/auth.ts @src/session.ts
 
 # Quick question
 gemini -p "Is this approach sound for handling retries?"
+
+# Web search
+gemini -p --yolo "What's the latest stable Node.js LTS?"
 ```
 
-**Tips:** `--yolo` is needed for agentic file access in headless mode (without it, tool calls block). Use `-m gemini-2.5-pro` to skip the CLI's internal model routing (~1-2s). Cold start is ~16s per invocation.
+**Tips:** `--yolo` is needed for agentic file access in headless mode (without it, tool calls block). Use `-m gemini-2.5-pro` to skip the CLI's internal model routing (~1-2s). Cold start is ~16s per invocation. For code review, see [Code review with this CLI](#code-review-with-this-cli) below.
 
 **Use this MCP bridge instead when:**
 - Your client has no shell access (Cursor, Windsurf, Claude Desktop, VS Code)
-- You want to know the cost before you pay it, `assess` classifies a diff in <2s (no spawn) and recommends a review depth with an estimated wall time
-- You need graduated review depth rather than all-or-nothing: `scan` (diff-only, ~40s), `focused` (reads changed files, 1-3min), `deep` (full agentic, up to 30min) with per-depth auto-scaled timeouts
 - You need structured output with JSON Schema validation (Gemini CLI has [no custom schema support](https://github.com/google-gemini/gemini-cli/issues/13388))
 - You need concurrency management (max 3 parallel spawns, FIFO queue, optional pacing/jitter between CLI starts)
-- You need partial response capture on timeout (NDJSON streaming), automatic model fallback on quota errors for most tools, and structured capacity failures for deep review
+- You need partial response capture on timeout (NDJSON streaming) and automatic model fallback on quota errors
 - You need response length controls (`maxResponseLength` parameter)
-- You need oversized query/review/search responses paginated safely instead of getting truncated by MCP client limits
+- You need oversized query/search/structured responses paginated safely instead of getting truncated by MCP client limits
 - You want subprocess isolation: env allowlist, path sandboxing, no shell escape
 
 ## Quick Start
@@ -92,11 +87,9 @@ Add to your MCP settings:
 |------|-------------|
 | **query** | Agentic prompt with optional file context. Gemini runs inside your repo with read/grep/glob tools. Supports text and images. |
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
-| **assess** | Zero-cost diff analysis pre-flight. Classifies complexity and change kind, adds guidance, and recommends a `review` depth. No CLI spawn. |
-| **review** | Repo-aware code review at three depths: `scan` (diff-only), `focused` (reads changed files), `deep` (full agentic exploration). |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
-| **fetch-chunk** | Retrieve later segments from a chunked `query`, `review`, or `search` response using its `cacheKey`. |
+| **fetch-chunk** | Retrieve later segments from a chunked `query`, `search`, or `structured` response using its `cacheKey`. |
 
 ### query
 
@@ -106,31 +99,13 @@ Key parameters: `prompt` (required), `files` (text or images), `model`, `working
 
 **Change mode**: set `changeMode: true` to ask Gemini to emit structured `**FILE: <path>:<start>-<end>**` / `===OLD===` / `===NEW===` edit blocks instead of prose. The raw response stays in `response` (chunked normally); parsed edits are returned on `_meta.edits` as a machine-applicable array and are never chunked. A pre/post-spawn git snapshot detects any file writes Gemini might attempt, if writes are found, `_meta.appliedWrites` is set to true and `edits` is omitted so callers can't re-apply half-applied state. Text-only for v1; requires a git `workingDirectory`. Plan mode refuses to emit edit blocks (verified on CLI 0.38.0), so change mode runs in default agentic mode with the snapshot guardrail as the safety net.
 
-### assess
-
-Runs `git diff --numstat` and `--name-only` locally and returns diff stats, changed file list, complexity (trivial/moderate/complex), change kind (`empty` / `code` / `mixed` / `non-code` / `generated`), guidance, and suggested `review` depths with estimated wall-clock time. No CLI spawn, no model call, returns in under 2 seconds.
-
-Key parameters: `uncommitted` (default true), `base`, `workingDirectory`.
-
-### review
-
-Three depth tiers, selectable via the `depth` parameter. Use the `assess` tool first for a recommendation.
-
-- **scan**: diff-only, single-pass, no repo exploration. Constant 180s timeout. Good for sanity checks and small diffs.
-- **focused**: pre-computed diff + Gemini reads changed files for surrounding context. Plan mode, no shell. Timeout `120s + 15s * files` (cap 300s; 240s fallback). Good for light-to-moderate reviews.
-- **deep** (default): full agentic exploration with `--yolo`. Gemini runs `git diff` itself, follows imports, checks tests, reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Timeout `240s + 45s * files` (cap 1800s; 600s fallback). On capacity failures such as 429/503, deep review returns structured failure metadata instead of retrying or silently downgrading. Deepest.
-
-The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
-
-Key parameters: `uncommitted` (default true), `base`, `focus`, `depth`, `workingDirectory`, `timeout`, `maxResponseLength`.
-
 ### search
 
 Google Search grounded query. Spawns Gemini CLI in agentic mode with `google_web_search`, then synthesizes an answer with source URLs.
 
 Key parameters: `query` (required), `model`, `workingDirectory`, `timeout`.
 
-Large `query`, `review`, and `search` responses are automatically chunked when they exceed the bridge threshold. The first chunk includes a `cacheKey` and chunk count in `_meta` and the response footer. Use `fetch-chunk` with that `cacheKey` and a 1-based `chunkIndex` to retrieve later segments within the 10-minute in-memory cache window.
+Large `query` and `search` responses are automatically chunked when they exceed the bridge threshold. The first chunk includes a `cacheKey` and chunk count in `_meta` and the response footer. Use `fetch-chunk` with that `cacheKey` and a 1-based `chunkIndex` to retrieve later segments within the 10-minute in-memory cache window. `structured` responses are intentionally not chunked (preserves machine-consumable JSON output).
 
 ### structured
 
@@ -142,7 +117,28 @@ Key parameters: `prompt` (required), `schema` (required, JSON string), `files`, 
 
 No parameters. Returns CLI version, auth status, and server info.
 
-All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `partial` (timeout indicator). Review may also attach `capacityFailure`; assess includes `diffKind`, `guidance`, and `suggestions`. See [DESIGN.md](DESIGN.md) for details.
+All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `partial` (timeout indicator). See [DESIGN.md](DESIGN.md) for details.
+
+## Code review with this CLI
+
+The `review` and `assess` tools were removed in v0.7.0 (see [ADR-001](docs/decisions/001-remove-review-and-assess-tools.md)). The gemini ecosystem already ships several review surfaces, listed here in priority order:
+
+1. **Official `gemini-cli-extensions/code-review` extension** ([repo](https://github.com/gemini-cli-extensions/code-review)). Adds `/code-review` and `/pr-code-review` slash commands to the CLI.
+2. **Skills** (`/skills`, `.gemini/skills/code-reviewer/SKILL.md`). Project- or user-scoped review prompts, invokable as slash commands.
+3. **Subagents** (`.gemini/agents/`, `~/.gemini/agents/`). Specialized reviewer personas the CLI can delegate to.
+4. **Gemini Code Assist** GitHub app. Inline review on pull requests.
+5. **Direct `gemini -p`** with hardened isolation flags. Pipe the diff via stdin (using `$(git diff ...)` as positional args expands the diff into shell tokens):
+
+   ```bash
+   git diff origin/main...HEAD | gemini --approval-mode plan \
+     -e "" \
+     --allowed-mcp-server-names "" \
+     -p "Review the diff on stdin for bugs, missing tests, and unhandled errors"
+   ```
+
+   `--approval-mode plan` is read-only agentic. `-e ""` disables loaded extensions for this run. `--allowed-mcp-server-names ""` blocks bundled MCP servers. Default text output is preferred over `--output-format json` for human-readable review notes.
+
+6. **Third-party MCP servers** if you specifically need an MCP-shaped review tool (e.g. [`nicobailon/gemini-code-review-mcp`](https://github.com/nicobailon/gemini-code-review-mcp)).
 
 ## Configuration
 
@@ -155,13 +151,13 @@ All tools attach execution metadata (`_meta`) with `durationMs`, `model`, and `p
 | `GEMINI_MIN_INVOCATION_GAP_MS` | `5000` | Minimum gap between Gemini CLI start times |
 | `GEMINI_SPAWN_JITTER_MAX_MS` | `200` | Random extra delay before spawn to avoid deterministic timing |
 
-Prompt templates for review, search, and structured tools live in `prompts/`. Editable when running from a local clone; bundled when running via `npx`.
+Prompt templates for the search, structured, and `query` change-mode tools live in `prompts/`. Editable when running from a local clone; bundled when running via `npx`.
 
 ## Choosing a Gemini MCP server
 
 | You need... | Consider |
 |-------------|----------|
-| Agentic code review, structured output, concurrency management | This bridge |
+| Schema-validated structured output, concurrency management, response chunking | This bridge |
 | Shell command generation, Google Workspace integration | [@tuannvm/gemini-mcp-server](https://github.com/tuannvm/gemini-mcp-server) |
 | Lightweight large-context codebase analysis | [gemini-mcp-tool](https://github.com/jamubc/gemini-mcp-tool) |
 | No CLI dependency (API-only, broadest feature set) | [@rlabs-inc/gemini-mcp](https://github.com/RLabs-Inc/gemini-mcp) |
@@ -174,10 +170,9 @@ Each invocation spawns a fresh CLI process with ~15-20s cold start (large depend
 | Scenario | Typical time |
 |----------|-------------|
 | Minimal query | 17-25s |
-| Scan review (diff-only) | 35-50s |
-| Focused review (reads changed files) | 60-180s |
-| Deep review (explores repo) | 60s to 30 min |
+| File-context query (small repo) | 30-60s |
 | Web search + synthesis | 35-60s |
+| Structured output (small schema) | 25-45s |
 
 Setting `GEMINI_DEFAULT_MODEL` avoids the CLI's internal model routing step (~1-2s savings per call).
 
@@ -189,8 +184,8 @@ Three MCP servers, same architecture, different underlying CLIs. Each wraps a te
 |---|---|---|---|
 | **CLI** | Gemini CLI | Claude Code | Codex CLI |
 | **Provider** | Google | Anthropic | OpenAI |
-| **Tools** | query, review, search, structured, ping | query, review, search, structured, ping, listSessions | codex, review, search, query, structured, ping, listSessions |
-| **Agentic review** | Gemini explores repo with file reads and git | Claude explores repo with Read/Grep/Glob/git | Codex explores repo in full-auto mode |
+| **Tools** | query, structured, search, fetch-chunk, ping | query, structured, search, ping, listSessions | codex, query, structured, search, ping, listSessions |
+| **Code review** | Use the gemini ecosystem: [code-review extension](https://github.com/gemini-cli-extensions/code-review), skills, subagents, Code Assist, or `gemini -p` | Use Claude Code built-ins (`/review`, `/security-review`, `/ultrareview`) or `claude -p` | Use `codex review --base <ref>` (native CLI subcommand) |
 | **Structured output** | Ajv validation | Native `--json-schema` | Ajv validation |
 | **Session resume** | Not supported | Native `--resume` | Session IDs with multi-turn |
 | **Budget caps** | Not supported | Native `--max-budget-usd` | Not supported |

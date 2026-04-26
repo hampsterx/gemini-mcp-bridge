@@ -55,66 +55,30 @@ All tools declare [MCP tool annotations](https://modelcontextprotocol.io/specifi
 
 | Tool | readOnlyHint | destructiveHint | openWorldHint |
 |------|-------------|----------------|---------------|
-| query | true | false | true |
+| query | false | false | true |
 | search | true | false | true |
-| review | true | false | true |
 | structured | true | false | true |
+| fetch-chunk | true | false | false |
 | ping | true | false | false |
+
+`query` reports `readOnlyHint: false` because change-mode (`changeMode: true`) can write files via the snapshot guardrail path. The default text-only path is read-only in practice; the annotation reflects worst-case capability so MCP clients can prompt for permission appropriately.
 
 ## Progress Notifications
 
-The `review` and `search` tools emit MCP `notifications/progress` every 15 seconds when the client provides a `progressToken` in the request's `_meta`. Heartbeats include elapsed time. Notifications are fire-and-forget; clients that don't support progress notifications are unaffected.
+The `search` tool emits MCP `notifications/progress` every 15 seconds when the client provides a `progressToken` in the request's `_meta`. Heartbeats include elapsed time. Notifications are fire-and-forget; clients that don't support progress notifications are unaffected.
 
 ## Prompt Templates
 
-The `review`, `search`, and `structured` tools load prompt templates from the `prompts/` directory:
+The `search`, `structured`, and `query` (change-mode path) tools load prompt templates from the `prompts/` directory:
 
 ```
 prompts/
-├── review-agentic.md   # Full agentic review (default)
-├── review-quick.md     # Quick diff-only review
+├── change-mode.md      # query change-mode edit-block contract
 ├── search.md           # Web search synthesis
 └── structured.md       # JSON Schema output
 ```
 
-Templates are loaded by `src/utils/prompts.ts` and filled with placeholders (diff content, schema, focus area, etc.). When running via `npx`, the bundled templates are used. When running from a local clone, you can edit them to adjust review style, search instructions, or output formatting.
-
-## Review Timeout Scaling
-
-The `review` tool scales timeouts per depth. The formulas live in `scaleTimeoutForDepth()` in `src/tools/review.ts`; the hard cap is defined in `src/utils/limits.ts`.
-
-### scan (constant)
-
-Constant **180s**, independent of diff size. Diff-only, single-pass, no repo exploration.
-
-### focused (moderate, capped)
-
-**120s baseline + 15s per changed file**, capped at 300s. Fallback 240s when diff stat unavailable.
-
-| Files | Timeout |
-|---|---|
-| 1 | 135s |
-| 5 | 195s |
-| 10 | 270s |
-| 12+ | 300s (cap) |
-
-Plan mode: Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Scope is **prompt-guided, not CLI-enforced** — Gemini could technically read any non-gitignored file in the repo, so containment to the diff footprint relies on the prompt instruction plus the reduced tool surface.
-
-### deep (generous, hard-capped)
-
-**240s baseline + 45s per changed file**, capped at 1800s (30 min). Fallback 600s when diff stat unavailable.
-
-| Files changed | Default timeout |
-|---|---|
-| 1 | 285s (4.75 min) |
-| 5 | 465s (7.75 min) |
-| 10 | 690s (11.5 min) |
-| 20 | 1140s (19 min) |
-| 35+ | 1800s (30 min, hard cap) |
-
-Full agentic exploration with `--yolo`. File count isn't a perfect workload signal (30 YAML lines differ from 30 TypeScript files with deep imports), so the formula is deliberately generous. For very large diffs, drop to `focused` (reads changed files only) or `scan` (diff text only), or pass a narrowed `base`.
-
-A caller-supplied `timeout` parameter always takes precedence at any depth (capped at `HARD_TIMEOUT_CAP`).
+Templates are loaded by `src/utils/prompts.ts` and filled with placeholders (schema, focus area, etc.). When running via `npx`, the bundled templates are used. When running from a local clone, you can edit them to adjust search instructions or output formatting.
 
 ## Latency Budget
 
@@ -126,4 +90,4 @@ The Gemini CLI has a ~16s cold start (584MB package, synchronous init). Every sp
 | Utility router | ~1-2s | Skipped when `--model` is specified |
 | Model inference | 1-27s | Scales with prompt size and model |
 
-Timeouts under 20s are never useful for query/search/review/structured (ping is exempt, it only checks `--version`). Once daemon mode ships upstream, we plan to support it as an alternative to per-invocation spawning.
+Timeouts under 20s are never useful for query/search/structured (ping is exempt, it only checks `--version`). Once daemon mode ships upstream, we plan to support it as an alternative to per-invocation spawning.

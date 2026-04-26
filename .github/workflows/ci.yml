@@ -34,5 +34,5 @@ jobs:
           # Ensure dist/ entry point exists
           test -f dist/index.js || (echo "FAIL: dist/index.js missing" && exit 1)
           test -f dist/server.js || (echo "FAIL: dist/server.js missing" && exit 1)
-          # Ensure prompts are included (used by review/search tools)
+          # Ensure prompts are included (used by search/structured tools and query change-mode)
           ls prompts/*.md > /dev/null 2>&1 || (echo "FAIL: prompts/ missing" && exit 1)

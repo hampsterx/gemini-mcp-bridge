@@ -21,7 +21,7 @@ export async function executeFetchChunk(input: FetchChunkInput): Promise<FetchCh
   const entry = chunkCache.get(input.cacheKey);
   if (!entry) {
     throw new Error(
-      `Chunk cache entry not found or expired for cacheKey "${input.cacheKey}". Re-run query, review, or search to get a fresh cacheKey, then call fetch-chunk again.`,
+      `Chunk cache entry not found or expired for cacheKey "${input.cacheKey}". Re-run query or search to get a fresh cacheKey, then call fetch-chunk again.`,
     );
   }
 

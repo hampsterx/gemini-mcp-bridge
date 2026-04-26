@@ -7,11 +7,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("../../src/tools/query.js", () => ({
   executeQuery: vi.fn(),
 }));
-vi.mock("../../src/tools/review.js", () => ({
-  executeReview: vi.fn(),
-  buildAgenticPrompt: vi.fn(),
-  buildQuickPrompt: vi.fn(),
-}));
 vi.mock("../../src/tools/search.js", () => ({
   executeSearch: vi.fn(),
 }));
@@ -20,9 +15,6 @@ vi.mock("../../src/tools/ping.js", () => ({
 }));
 vi.mock("../../src/tools/structured.js", () => ({
   executeStructured: vi.fn(),
-}));
-vi.mock("../../src/tools/assess.js", () => ({
-  executeAssess: vi.fn(),
 }));
 vi.mock("../../src/tools/fetchChunk.js", () => ({
   executeFetchChunk: vi.fn(),
@@ -33,13 +25,13 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ProgressNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../../src/server.js";
 import { executeQuery } from "../../src/tools/query.js";
-import { executeReview } from "../../src/tools/review.js";
+import { executeSearch } from "../../src/tools/search.js";
 import { executePing } from "../../src/tools/ping.js";
 import { executeFetchChunk } from "../../src/tools/fetchChunk.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const mockQuery = vi.mocked(executeQuery);
-const mockReview = vi.mocked(executeReview);
+const mockSearch = vi.mocked(executeSearch);
 const mockPing = vi.mocked(executePing);
 const mockFetchChunk = vi.mocked(executeFetchChunk);
 
@@ -66,10 +58,10 @@ describe("MCP server wiring", () => {
     await server.close();
   });
 
-  it("lists all seven registered tools", async () => {
+  it("lists all five registered tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["assess", "fetch-chunk", "ping", "query", "review", "search", "structured"]);
+    expect(names).toEqual(["fetch-chunk", "ping", "query", "search", "structured"]);
   });
 
   it("returns tool response with metadata footer", async () => {
@@ -232,80 +224,6 @@ describe("MCP server wiring", () => {
     expect(text).toContain("Auth status: ok");
   });
 
-  it("review tool includes diff metadata in response", async () => {
-    mockReview.mockResolvedValue({
-      response: "LGTM, no issues found.",
-      diffSource: "uncommitted",
-      mode: "scan",
-      timedOut: false,
-      resolvedCwd: "/tmp/repo",
-      appliedTimeout: 180_000,
-      timeoutScaled: false,
-    });
-
-    const result = await client.callTool({
-      name: "review",
-      arguments: { quick: true },
-    });
-
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("LGTM");
-    expect(text).toContain("Diff source: uncommitted");
-    expect(text).toContain("Mode: scan");
-  });
-
-  it("review tool accepts the depth parameter and reports the resolved depth", async () => {
-    mockReview.mockResolvedValue({
-      response: "Focused review output.",
-      diffSource: "uncommitted",
-      mode: "focused",
-      timedOut: false,
-      resolvedCwd: "/tmp/repo",
-      appliedTimeout: 195_000,
-      timeoutScaled: true,
-      diffStat: { files: 5, insertions: 20, deletions: 4 },
-    });
-
-    const result = await client.callTool({
-      name: "review",
-      arguments: { depth: "focused" },
-    });
-
-    expect(mockReview).toHaveBeenCalledWith(expect.objectContaining({ depth: "focused" }));
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("Focused review output.");
-    expect(text).toContain("Mode: focused");
-    expect(text).toContain("scaled for 5-file diff");
-  });
-
-  it("review tool surfaces capacity failure metadata without marking the tool call as an error", async () => {
-    mockReview.mockResolvedValue({
-      response: "The requested deep review could not be completed because Gemini returned a capacity-related failure: service_unavailable (503).",
-      diffSource: "uncommitted",
-      mode: "deep",
-      timedOut: false,
-      resolvedCwd: "/tmp/repo",
-      appliedTimeout: 375_000,
-      timeoutScaled: true,
-      diffStat: { files: 3, insertions: 10, deletions: 2 },
-      capacityFailure: {
-        kind: "service_unavailable",
-        statusCode: 503,
-        message: "503 Service Unavailable",
-      },
-    });
-
-    const result = await client.callTool({
-      name: "review",
-      arguments: { depth: "deep" },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("capacity-related failure");
-    expect(text).toContain("Capacity failure: service_unavailable (503)");
-  });
-
   describe("progress notifications", () => {
     beforeEach(() => {
       vi.useFakeTimers();
@@ -316,20 +234,16 @@ describe("MCP server wiring", () => {
     });
 
     it("delivers heartbeats to client when progressToken is provided", async () => {
-      // Mock review to take 20s so the 15s heartbeat fires at least once
-      mockReview.mockImplementation(
+      // Mock search to take 20s so the 15s heartbeat fires at least once
+      mockSearch.mockImplementation(
         () =>
           new Promise((resolve) =>
             setTimeout(
               () =>
                 resolve({
-                  response: "Looks good.",
-                  diffSource: "uncommitted" as const,
-                  mode: "scan" as const,
+                  response: "Search synthesis result.",
                   timedOut: false,
                   resolvedCwd: "/tmp/repo",
-                  appliedTimeout: 180_000,
-                  timeoutScaled: false,
                 }),
               20_000,
             ),
@@ -347,8 +261,8 @@ describe("MCP server wiring", () => {
       });
 
       const resultPromise = client.callTool({
-        name: "review",
-        arguments: { quick: true },
+        name: "search",
+        arguments: { query: "MCP" },
         _meta: { progressToken: "test-tok-1" },
       });
 
@@ -366,23 +280,19 @@ describe("MCP server wiring", () => {
       const result = await resultPromise;
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain("Looks good.");
+      expect(text).toContain("Search synthesis result.");
     });
 
     it("does not send heartbeats when no progressToken is provided", async () => {
-      mockReview.mockImplementation(
+      mockSearch.mockImplementation(
         () =>
           new Promise((resolve) =>
             setTimeout(
               () =>
                 resolve({
                   response: "OK",
-                  diffSource: "uncommitted" as const,
-                  mode: "scan" as const,
                   timedOut: false,
                   resolvedCwd: "/tmp/repo",
-                  appliedTimeout: 180_000,
-                  timeoutScaled: false,
                 }),
               20_000,
             ),
@@ -395,8 +305,8 @@ describe("MCP server wiring", () => {
       });
 
       const resultPromise = client.callTool({
-        name: "review",
-        arguments: { quick: true },
+        name: "search",
+        arguments: { query: "MCP" },
         // No _meta / progressToken
       });
 
