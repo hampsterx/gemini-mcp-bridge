@@ -31,6 +31,6 @@ describe("executeFetchChunk", () => {
   it("rejects missing cache keys", async () => {
     await expect(
       executeFetchChunk({ cacheKey: "missing", chunkIndex: 1 }),
-    ).rejects.toThrow("Re-run query, review, or search");
+    ).rejects.toThrow("Re-run query or search");
   });
 });

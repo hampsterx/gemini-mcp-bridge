@@ -13,7 +13,7 @@
  *   node scripts/smoke-test.mjs                    # query tool, cwd
  *   node scripts/smoke-test.mjs query /tmp         # query tool, /tmp
  *   node scripts/smoke-test.mjs search             # search tool
- *   node scripts/smoke-test.mjs review ~/NUI/cream # review tool against cream
+ *   node scripts/smoke-test.mjs structured         # structured tool
  *   node scripts/smoke-test.mjs fetch-chunk        # chunk cache round-trip
  */
 
@@ -77,18 +77,20 @@ try {
     console.log("response:", result.response.slice(0, 200) + (result.response.length > 200 ? "..." : ""));
     console.log("resolvedCwd:", result.resolvedCwd);
     console.log("timedOut:", result.timedOut);
-  } else if (tool === "review") {
-    const { executeReview } = await import("../dist/tools/review.js");
-    const result = await executeReview({
-      uncommitted: true,
-      quick: true,
+  } else if (tool === "structured") {
+    const { executeStructured } = await import("../dist/tools/structured.js");
+    const result = await executeStructured({
+      prompt: "Return the colour red as JSON.",
+      schema: JSON.stringify({
+        type: "object",
+        properties: { colour: { type: "string" } },
+        required: ["colour"],
+      }),
       workingDirectory,
-      maxResponseLength: 100,
       timeout: 120_000,
     });
     console.log("response:", result.response.slice(0, 200) + (result.response.length > 200 ? "..." : ""));
     console.log("resolvedCwd:", result.resolvedCwd);
-    console.log("mode:", result.mode);
     console.log("timedOut:", result.timedOut);
   } else if (tool === "ping") {
     const { executePing } = await import("../dist/tools/ping.js");
@@ -115,7 +117,7 @@ try {
     console.log("totalChunks:", result.totalChunks);
     console.log("chunk:", result.chunk.slice(0, 120) + (result.chunk.length > 120 ? "..." : ""));
   } else {
-    console.error(`Unknown tool: ${tool}. Use: query, query-change-mode, search, review, ping, fetch-chunk`);
+    console.error(`Unknown tool: ${tool}. Use: query, query-change-mode, search, structured, ping, fetch-chunk`);
     process.exit(1);
   }
 

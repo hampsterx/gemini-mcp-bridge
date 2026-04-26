@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-04-26
+
+### Removed (BREAKING)
+- **`review` tool**: bundled reviewer prompts + depth selector + `stripReviewPreamble` + anchor sets. Caller-supplied prompts via the existing `query` tool, or direct `gemini -p` invocation, replace it. The gemini ecosystem ships several review surfaces (Code Review extension, skills, subagents, Code Assist, third-party MCP servers); the bridge is the wrong layer to add another.
+- **`assess` tool**: depth recommender calibrated to `review`'s depth grammar. Without `review`, the rubric has no anchor.
+- **`prompts/review-{agentic,focused,quick}.md`**: review prompt templates.
+- **`policies/review.toml`**: review policy file.
+- **`src/utils/git.ts`**: review/assess were the only consumers.
+
+Rationale: [docs/decisions/001-remove-review-and-assess-tools.md](docs/decisions/001-remove-review-and-assess-tools.md).
+
+### Changed
+- Tool surface is now `query`, `structured`, `search`, `fetch-chunk`, `ping` (5 tools).
+- README adds a "Code review with this CLI" section pointing to the gemini ecosystem's review surfaces in priority order.
+- `server.json` description tightened to fit the 100-char registry limit.
+
 ## [0.6.0] - 2026-04-21
 
 ### Added

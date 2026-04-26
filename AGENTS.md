@@ -11,7 +11,7 @@ Open source MCP server that wraps Gemini CLI as a subprocess, exposing its best 
 - **Language**: TypeScript
 - **Framework**: `@modelcontextprotocol/sdk`
 
-See README § Latency expectations before changing timeout defaults or adding new tools. The `review` tool auto-scales its default timeout from `git diff --numstat` file count via `scaleTimeoutForDepth` in `src/tools/review.ts` (per-depth formulas — see Review Tool Details); the hard cap is defined in `src/utils/limits.ts` and imported by both `spawn.ts` and `retry.ts`.
+See README § Latency expectations before changing timeout defaults or adding new tools. The hard timeout cap is defined in `src/utils/limits.ts` and imported by both `spawn.ts` and `retry.ts`.
 
 ## Architecture
 
@@ -19,22 +19,17 @@ See README § Latency expectations before changing timeout defaults or adding ne
 MCP Client  --stdio-->  gemini-mcp-bridge  --spawn-->  gemini CLI subprocess
 ```
 
-We assemble prompts in TypeScript and spawn the CLI. The `review` and `search` tools load prompt templates from `prompts/*.md` via `src/utils/prompts.ts` and fill placeholders; the CLI then runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory, google_web_search) to explore surrounding code or the web for context.
+We assemble prompts in TypeScript and spawn the CLI. The `search`, `structured`, and `query` (change-mode path) tools load prompt templates from `prompts/*.md` via `src/utils/prompts.ts` and fill placeholders; the CLI then runs in agentic mode inside the target repo, using its built-in tools (read_file, grep_search, list_directory, google_web_search) to explore surrounding code or the web for context.
 
 ## Tools
 
 | Tool | Purpose | Default Timeout |
 |------|---------|----------------|
-| `assess` | Zero-cost diff analysis pre-flight (no CLI spawn) | N/A (<2s) |
 | `query` | Agentic query with read-only repo exploration | 120s |
 | `search` | Google Search grounded query via `google_web_search` | 120s |
-| `review` | Repo-aware code review at caller-chosen depth (scan/focused/deep) | Per depth: scan 180s, focused 120-300s, deep 240-1800s |
+| `structured` | JSON Schema validated output | 120s |
 | `ping` | Health check + CLI capability detection | 10s |
-| `fetch-chunk` | Retrieve cached follow-up chunks from oversized query/review/search responses | N/A (<1s) |
-
-### Assess Tool Details
-
-Runs `git diff --numstat` and `--name-only` locally (no CLI spawn, no model call). Returns diff stats, changed file list, complexity classification (trivial/moderate/complex), change kind (`empty` / `code` / `mixed` / `non-code` / `generated`), guidance, and suggestions for which review depth to use with estimated wall-clock times. Use before `review` to set timeout expectations.
+| `fetch-chunk` | Retrieve cached follow-up chunks from oversized responses | N/A (<1s) |
 
 ### Query Tool Details
 
@@ -46,26 +41,16 @@ Spawns CLI in agentic mode with access to `google_web_search`. Uses a prompt tem
 
 ### Response Chunking
 
-Large `query`, `review`, and `search` responses are chunked automatically to avoid MCP client payload limits. The first response includes chunk metadata plus a `cacheKey`; subsequent chunks can be retrieved with the `fetch-chunk` tool using a 1-based `chunkIndex`.
+Large `query` and `search` responses are chunked automatically to avoid MCP client payload limits. The first response includes chunk metadata plus a `cacheKey`; subsequent chunks can be retrieved with the `fetch-chunk` tool using a 1-based `chunkIndex`.
 
 - Cache is in-memory only
 - TTL: 10 minutes
 - Max entries: 50
 - `structured` responses are intentionally not chunked to avoid breaking machine-consumed JSON payloads
 
-### Review Tool Details
+### Code Review
 
-The `review` tool has three depth tiers, selectable via the `depth` parameter:
-
-- **scan**: Sends only the diff text. Single-pass, no repo exploration. Constant 180s timeout. Fastest, shallowest.
-- **focused**: Pre-computes the diff and inlines it. CLI spawns in plan mode (no `--yolo`) so Gemini has `read_file` / `grep_search` / `list_directory` but no shell. Prompt instructs Gemini to read changed files for context but NOT trace imports, check tests, or explore the wider repo. Timeout: `120s + 15s * files`, capped at 300s; 240s fallback when diff stat unavailable. Containment is **prompt-driven, not CLI-enforced**: plan mode removes shell access but does not scope reads to changed files.
-- **deep** (default): Full agentic exploration with `--yolo`. CLI runs `git diff` itself, reads full files, follows imports, checks tests, and reads project instruction files (AGENTS.md, CLAUDE.md, GEMINI.md, etc.). Timeout: `240s + 45s * files`, capped at 1800s (30 min); 600s fallback when diff stat is unavailable. Capacity failures such as 429/503 are returned as structured review metadata instead of triggering an internal fallback retry.
-
-The legacy `quick` boolean is deprecated but still honoured: `quick: true` → `depth: "scan"`, `quick: false` → `depth: "deep"`. `depth` wins when both are set.
-
-Use the `assess` tool first to classify diff complexity and get a depth recommendation.
-
-Optional `focus` parameter lets callers direct attention (e.g. "security", "performance", "error handling") across any depth.
+The `review` and `assess` tools were removed in v0.7.0. See [docs/decisions/001-remove-review-and-assess-tools.md](docs/decisions/001-remove-review-and-assess-tools.md) and the README § Code review with this CLI for the recommended ecosystem alternatives (extension, skills, subagents, Code Assist, direct `gemini -p`).
 
 ## Development
 
@@ -85,8 +70,8 @@ MCP servers are long-lived processes. Claude Code (and other MCP clients) cannot
 ```bash
 npm run smoke                          # query tool, cwd
 npm run smoke -- query /path/to/repo   # query with specific workingDirectory
-npm run smoke -- review ~/NUI/cream    # review tool against another repo
 npm run smoke -- search                # search tool
+npm run smoke -- structured            # structured tool
 npm run smoke -- ping                  # health check
 npm run smoke -- fetch-chunk           # chunk cache round-trip
 ```
@@ -112,7 +97,7 @@ The gemini CLI has a ~16s cold start (584MB package, synchronous init). Every sp
 | Model inference | 1-27s | Scales with prompt size and model |
 
 Implications:
-- Timeouts under 20s are never useful for query/search/review/structured (ping is exempt, it only checks `--version`)
+- Timeouts under 20s are never useful for query/search/structured (ping is exempt, it only checks `--version`)
 - `NODE_OPTIONS=--max-old-space-size=8192` (set in `env.ts`) is critical; without it, GC pressure nearly doubles wall time
 - Setting `GEMINI_DEFAULT_MODEL` (or passing `model` per-call) skips the CLI's internal routing step
 
@@ -146,7 +131,7 @@ Implications:
 
 ### Working Directory
 - Accept `workingDirectory` param on all tools
-- Resolve to git root for review operations
+- Resolve to git root when working in a repo
 - Fall back to `process.cwd()`
 
 ## Testing

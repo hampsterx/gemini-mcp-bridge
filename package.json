@@ -1,8 +1,8 @@
 {
   "name": "gemini-mcp-bridge",
   "mcpName": "io.github.hampsterx/gemini-mcp-bridge",
-  "version": "0.6.0",
-  "description": "MCP server that wraps Gemini CLI for query, code review, and health checks",
+  "version": "0.7.0",
+  "description": "MCP server that wraps Gemini CLI for query, structured output, search, and health checks",
   "author": "hampsterx",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,6 @@
   },
   "files": [
     "dist",
-    "policies",
     "prompts"
   ],
   "scripts": {
@@ -34,7 +33,6 @@
     "gemini-cli",
     "claude-code",
     "codex",
-    "code-review",
     "ai-tools",
     "model-context-protocol"
   ],

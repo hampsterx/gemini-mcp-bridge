@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hampsterx/gemini-mcp-bridge",
-  "description": "MCP server wrapping Gemini CLI: query, review, search, structured output, and diff assessment.",
+  "description": "Wraps Gemini CLI as MCP tools: query, structured, search, fetch-chunk, ping.",
   "repository": {
     "url": "https://github.com/hampsterx/gemini-mcp-bridge",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "gemini-mcp-bridge",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
@@ -25,7 +25,7 @@
         },
         {
           "name": "GEMINI_DEFAULT_MODEL",
-          "description": "Default Gemini model for query/review/search.",
+          "description": "Default Gemini model for query/structured/search.",
           "format": "string",
           "isRequired": false
         },

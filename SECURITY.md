@@ -30,11 +30,11 @@ All file paths are resolved to absolute paths via `realpath()` and verified to s
 
 ## Agentic Mode
 
-The `review` (default mode), `search`, and `query` (with images) tools use `--yolo` to give Gemini CLI shell access. This means the model can execute arbitrary shell commands within the repository.
+The `search` and `query` (with images) tools use `--yolo` to give Gemini CLI shell access. This means the model can execute arbitrary shell commands within the repository.
 
-A bundled policy file (`policies/review.toml`) restricts shell to read-only git commands. The upstream CLI bug that prevented policy enforcement in headless mode ([google-gemini/gemini-cli#20469](https://github.com/google-gemini/gemini-cli/issues/20469)) is fixed in v0.35.3, but the bridge has not yet switched from `--yolo` to `--yolo --policy`.
+The `query` tool (text-only) and `structured` tool run under `--approval-mode plan` (read-only agentic): Gemini has read-side tools (read_file, grep_search, list_directory) but no shell.
 
-The `query` tool (text-only) runs under `--approval-mode plan` (read-only agentic). The `review` tool with `quick: true` does not use agentic mode at all: it sends only the diff text via stdin with no approval mode or tool access flags.
+When invoking Gemini CLI directly outside this bridge for code review, use the hardened flag set: `--approval-mode plan -e "" --allowed-mcp-server-names ""`. See README § Code review with this CLI.
 
 ## Resource Limits
 
