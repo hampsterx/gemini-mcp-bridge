@@ -35,7 +35,7 @@ gemini -p --yolo "What's the latest stable Node.js LTS?"
 - You need concurrency management (max 3 parallel spawns, FIFO queue, optional pacing/jitter between CLI starts)
 - You need partial response capture on timeout (NDJSON streaming) and automatic model fallback on quota errors
 - You need response length controls (`maxResponseLength` parameter)
-- You need oversized query/search/structured responses paginated safely instead of getting truncated by MCP client limits
+- You need oversized query/search responses paginated safely instead of getting truncated by MCP client limits (`structured` is intentionally not chunked, preserves machine-consumable JSON)
 - You want subprocess isolation: env allowlist, path sandboxing, no shell escape
 
 ## Quick Start
@@ -89,7 +89,7 @@ Add to your MCP settings:
 | **search** | Google Search grounded query. Gemini searches the web and synthesizes an answer with source URLs. |
 | **structured** | JSON Schema validated output via [Ajv](https://ajv.js.org/). Data extraction, classification, or any task needing machine-parseable output. |
 | **ping** | Health check. Verifies CLI is installed and authenticated, reports versions and capabilities. |
-| **fetch-chunk** | Retrieve later segments from a chunked `query`, `search`, or `structured` response using its `cacheKey`. |
+| **fetch-chunk** | Retrieve later segments from a chunked `query` or `search` response using its `cacheKey`. |
 
 ### query
 
