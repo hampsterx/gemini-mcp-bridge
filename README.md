@@ -1,5 +1,19 @@
 # gemini-mcp-bridge
 
+> ## Deprecated and unmaintained
+>
+> **Google is retiring Gemini CLI on June 18, 2026** in favor of [Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/). After that date, Gemini CLI stops serving requests for Google AI Pro, Ultra, and free tier accounts (Gemini Code Assist for individuals). Enterprise customers on paid Gemini Code Assist Standard/Enterprise licenses retain access.
+>
+> Because this bridge wraps Gemini CLI as a subprocess, it stops working for individual users on the same date. **This repository is archived and the npm package is deprecated.** No further releases are planned.
+>
+> **Migration options:**
+> - [Antigravity CLI](https://antigravity.google/) is Google's successor, written in Go, with Agent Skills, Hooks, Subagents, and plugins. Note: it is not open source.
+> - For other terminal agents, see the sibling bridges: [claude-mcp-bridge](https://github.com/hampsterx/claude-mcp-bridge), [codex-mcp-bridge](https://github.com/hampsterx/codex-mcp-bridge).
+>
+> Existing installs continue to function until June 18, 2026. The historical README follows.
+
+---
+
 [![npm version](https://img.shields.io/npm/v/gemini-mcp-bridge)](https://www.npmjs.com/package/gemini-mcp-bridge)
 [![npm downloads](https://img.shields.io/npm/dm/gemini-mcp-bridge)](https://www.npmjs.com/package/gemini-mcp-bridge)
 [![CI](https://github.com/hampsterx/gemini-mcp-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/hampsterx/gemini-mcp-bridge/actions/workflows/ci.yml)

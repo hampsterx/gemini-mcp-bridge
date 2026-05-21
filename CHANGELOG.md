@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-21
+
+### Deprecated
+- **Project deprecated and unmaintained.** Google is retiring Gemini CLI on 2026-06-18 in favor of [Antigravity CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/). After that date, Gemini CLI stops serving requests for Google AI Pro, Ultra, and free-tier (Gemini Code Assist for individuals) accounts. Enterprise customers on paid Gemini Code Assist Standard/Enterprise licenses retain access. Because this bridge wraps Gemini CLI as a subprocess, it stops working for individual users on the same date.
+- README updated with a prominent deprecation banner and migration pointers (Antigravity CLI, sibling [claude-mcp-bridge](https://github.com/hampsterx/claude-mcp-bridge) / [codex-mcp-bridge](https://github.com/hampsterx/codex-mcp-bridge)).
+- `package.json` description prefixed with `[DEPRECATED]` so npmjs.com listings surface the status. The npm package will be marked deprecated (`npm deprecate`) and the GitHub repository archived after this release publishes.
+
+No code changes in this release. Existing installs continue functioning until 2026-06-18.
+
 ## [0.7.0] - 2026-04-26
 
 ### Removed (BREAKING)

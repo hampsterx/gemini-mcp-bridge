@@ -1,8 +1,8 @@
 {
   "name": "gemini-mcp-bridge",
   "mcpName": "io.github.hampsterx/gemini-mcp-bridge",
-  "version": "0.7.0",
-  "description": "MCP server that wraps Gemini CLI for query, structured output, search, and health checks",
+  "version": "0.8.0",
+  "description": "[DEPRECATED] Unmaintained. Gemini CLI is being retired June 18, 2026 in favor of Antigravity CLI; this bridge stops working for individual users on the same date.",
   "author": "hampsterx",
   "license": "MIT",
   "type": "module",
